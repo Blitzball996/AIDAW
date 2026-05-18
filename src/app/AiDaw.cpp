@@ -7,13 +7,12 @@ class MainAppWindow : public juce::DocumentWindow {
 public:
     MainAppWindow()
         : DocumentWindow("AIDAW",
-                         juce::Desktop::getInstance().getDefaultLookAndFeel()
-                             .findColour(ResizableWindow::backgroundColourId),
+                         juce::Colour(0xff1e1e2e),
                          DocumentWindow::allButtons) {
         setUsingNativeTitleBar(true);
         setContentOwned(new MainWindowComponent(), true);
         setResizable(true, true);
-        centreWithSize(getWidth(), getHeight());
+        centreWithSize(1280, 800);
         setVisible(true);
     }
 
