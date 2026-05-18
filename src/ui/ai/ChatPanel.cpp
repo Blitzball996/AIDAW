@@ -1,4 +1,5 @@
 #include "ChatPanel.hpp"
+#include "ai/AiEngine.hpp"
 
 namespace aidaw {
 
@@ -15,6 +16,11 @@ ChatPanel::ChatPanel() {
 
     messageViewport.setViewedComponent(&messageContainer, false);
     addAndMakeVisible(messageViewport);
+}
+
+ChatPanel::~ChatPanel() {
+    if (workerThread.joinable())
+        workerThread.join();
 }
 
 void ChatPanel::paint(juce::Graphics& g) {
@@ -43,13 +49,45 @@ void ChatPanel::clear() {
 
 void ChatPanel::onSend() {
     auto text = inputEditor.getText().toStdString();
-    if (text.empty()) return;
+    if (text.empty() || processing.load()) return;
 
     addMessage("user", text);
     inputEditor.clear();
 
-    // TODO: send to AiEngine and display response
-    addMessage("ai", "[Processing: " + text + "]");
+    if (!aiEngine) {
+        addMessage("ai", "[No AI engine connected]");
+        return;
+    }
+
+    // Show thinking indicator
+    addMessage("ai", "thinking...");
+    processing = true;
+    sendButton.setEnabled(false);
+
+    // Join any previous worker thread
+    if (workerThread.joinable())
+        workerThread.join();
+
+    // Run LLM call on background thread
+    workerThread = std::thread([this, text]() {
+        auto result = aiEngine->processText(text);
+
+        // Update UI on the message thread
+        juce::MessageManager::callAsync([this, result]() {
+            // Remove the "thinking..." message
+            if (!messages.empty() && messages.back().content == "thinking...")
+                messages.pop_back();
+
+            if (result.hasError) {
+                addMessage("ai", "Error: " + result.error);
+            } else {
+                addMessage("ai", result.rawOutput);
+            }
+
+            processing = false;
+            sendButton.setEnabled(true);
+        });
+    });
 }
 
 void ChatPanel::refreshMessages() {

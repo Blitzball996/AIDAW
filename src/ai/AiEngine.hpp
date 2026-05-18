@@ -1,12 +1,14 @@
 #pragma once
 
 #include "MusicAgent.hpp"
+#include "RouterAgent.hpp"
 #include "VoiceInput.hpp"
 #include "PromptParser.hpp"
 #include "InstructionExecutor.hpp"
 #include "llm/LlmClient.hpp"
 #include "llm/LlmClientFactory.hpp"
 #include <memory>
+#include <string>
 
 namespace aidaw {
 
@@ -27,6 +29,7 @@ public:
     void stopVoiceInput();
 
     MusicAgent* getMusicAgent() { return musicAgent.get(); }
+    RouterAgent* getRouterAgent() { return routerAgent.get(); }
     InstructionExecutor* getExecutor() { return &executor; }
 
 private:
@@ -35,6 +38,7 @@ private:
     std::unique_ptr<LlmClient> cloudClient;
     std::unique_ptr<LlmClient> relayClient;
     std::unique_ptr<MusicAgent> musicAgent;
+    std::unique_ptr<RouterAgent> routerAgent;
     VoiceInput voiceInput;
     PromptParser promptParser;
     InstructionExecutor executor;

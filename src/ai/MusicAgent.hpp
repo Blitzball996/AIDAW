@@ -22,13 +22,17 @@ public:
     GenerateResult generate(const std::string& userMessage);
     GenerateResult generateStreaming(const std::string& userMessage, TokenCallback onToken);
 
+    void setProjectContext(const std::string& context);
+
     void requestCancel() { shouldStop = true; }
     void resetCancel() { shouldStop = false; }
 
 private:
     LlmClient* llmClient;
     std::atomic<bool> shouldStop{false};
+    std::string projectContext;
 
+    std::string buildFullPrompt(const std::string& userMessage) const;
     static const char* getSystemPrompt();
     std::vector<MusicInstruction> parseOutput(const std::string& output);
 };

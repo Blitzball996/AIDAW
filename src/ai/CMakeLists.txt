@@ -1,6 +1,7 @@
 add_library(aidaw_ai STATIC
     AiEngine.cpp
     MusicAgent.cpp
+    RouterAgent.cpp
     VoiceInput.cpp
     PromptParser.cpp
     InstructionExecutor.cpp

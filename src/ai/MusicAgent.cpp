@@ -6,6 +6,17 @@ namespace aidaw {
 MusicAgent::MusicAgent(LlmClient* client)
     : llmClient(client) {}
 
+void MusicAgent::setProjectContext(const std::string& context) {
+    projectContext = context;
+}
+
+std::string MusicAgent::buildFullPrompt(const std::string& userMessage) const {
+    if (projectContext.empty())
+        return userMessage;
+
+    return "[Current project state]\n" + projectContext + "\n\n[User request]\n" + userMessage;
+}
+
 const char* MusicAgent::getSystemPrompt() {
     return R"(You are a music composition AI. Given a user's description, generate music instructions.
 
@@ -42,7 +53,7 @@ MusicAgent::GenerateResult MusicAgent::generate(const std::string& userMessage) 
 
     LlmRequest request;
     request.systemPrompt = getSystemPrompt();
-    request.messages.push_back({"user", userMessage});
+    request.messages.push_back({"user", buildFullPrompt(userMessage)});
     request.temperature = 0.7f;
     request.maxTokens = 2048;
 
@@ -70,7 +81,7 @@ MusicAgent::GenerateResult MusicAgent::generateStreaming(const std::string& user
 
     LlmRequest request;
     request.systemPrompt = getSystemPrompt();
-    request.messages.push_back({"user", userMessage});
+    request.messages.push_back({"user", buildFullPrompt(userMessage)});
 
     std::string accumulated;
     auto response = llmClient->sendStreaming(request, [&](const std::string& token) {
