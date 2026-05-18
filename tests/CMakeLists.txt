@@ -1,17 +1,16 @@
 if(AIDAW_BUILD_TESTS)
-    add_executable(aidaw_tests
-        core_tests.cpp
-        ai_tests.cpp
-        mode_tests.cpp
-    )
+    # Core tests
+    add_executable(aidaw_core_tests core_tests.cpp)
+    target_link_libraries(aidaw_core_tests PRIVATE aidaw_core aidaw_utils juce::juce_core)
+    add_test(NAME CoreTests COMMAND aidaw_core_tests)
 
-    target_link_libraries(aidaw_tests PRIVATE
-        aidaw_core
-        aidaw_ai
-        aidaw_modes
-        aidaw_utils
-        juce::juce_core
-    )
+    # AI tests
+    add_executable(aidaw_ai_tests ai_tests.cpp)
+    target_link_libraries(aidaw_ai_tests PRIVATE aidaw_ai aidaw_utils juce::juce_core)
+    add_test(NAME AiTests COMMAND aidaw_ai_tests)
 
-    add_test(NAME AidawTests COMMAND aidaw_tests)
+    # Mode tests
+    add_executable(aidaw_mode_tests mode_tests.cpp)
+    target_link_libraries(aidaw_mode_tests PRIVATE aidaw_modes juce::juce_core)
+    add_test(NAME ModeTests COMMAND aidaw_mode_tests)
 endif()
