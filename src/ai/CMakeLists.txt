@@ -5,6 +5,13 @@ add_library(aidaw_ai STATIC
     VoiceInput.cpp
     PromptParser.cpp
     InstructionExecutor.cpp
+    AutomationAgent.cpp
+    AutomationParser.cpp
+    AutomationExecutor.cpp
+    CommandAgent.cpp
+    CompactParser.cpp
+    SoundDesignAgent.cpp
+    AgentManager.cpp
     llm/LocalLlmClient.cpp
     llm/CloudLlmClient.cpp
     llm/RelayLlmClient.cpp
