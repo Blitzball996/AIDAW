@@ -5,6 +5,13 @@ add_library(aidaw_core STATIC
     MixerEngine.cpp
     PluginHost.cpp
     TransportControl.cpp
+    UndoManager.cpp
+    AutomationManager.cpp
+    SelectionManager.cpp
+    Config.cpp
+    ClipCommands.cpp
+    TrackCommands.cpp
+    MidiNoteCommands.cpp
 )
 
 target_include_directories(aidaw_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)

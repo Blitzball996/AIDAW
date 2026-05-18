@@ -20,6 +20,12 @@ void ModeController::toggleMode() {
         : AppMode::Professional);
 }
 
+void ModeController::setViewMode(ViewMode mode) {
+    if (currentViewMode == mode) return;
+    currentViewMode = mode;
+    notifyViewModeListeners();
+}
+
 void ModeController::addListener(ModeListener* listener) {
     listeners.push_back(listener);
 }
@@ -34,6 +40,13 @@ void ModeController::notifyListeners() {
     auto profile = getCurrentProfile();
     for (auto* l : listeners) {
         l->modeChanged(currentMode, profile);
+    }
+}
+
+void ModeController::notifyViewModeListeners() {
+    auto profile = getViewModeProfile();
+    for (auto* l : listeners) {
+        l->viewModeChanged(currentViewMode, profile);
     }
 }
 
