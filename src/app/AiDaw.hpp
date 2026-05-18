@@ -15,8 +15,7 @@ public:
     void systemRequestedQuit() override;
 
 private:
-    class MainWindow;
-    std::unique_ptr<MainWindow> mainWindow;
+    std::unique_ptr<juce::DocumentWindow> mainWindow;
 };
 
 }  // namespace aidaw

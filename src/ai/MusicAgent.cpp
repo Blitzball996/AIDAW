@@ -1,4 +1,5 @@
 #include "MusicAgent.hpp"
+#include <sstream>
 
 namespace aidaw {
 

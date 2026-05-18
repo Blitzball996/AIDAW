@@ -16,12 +16,10 @@ LlmResponse CloudLlmClient::send(const LlmRequest& request) {
     auto url = juce::URL(juce::String(apiUrl))
         .withPOSTData(juce::String(buildRequestJson(request)));
 
-    juce::StringPairArray headers;
-    headers.set("Content-Type", "application/json");
-    headers.set("Authorization", "Bearer " + juce::String(apiKey));
+    juce::String extraHeaders = "Content-Type: application/json\r\nAuthorization: Bearer " + juce::String(apiKey);
 
     auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inPostData)
-        .withExtraHeaders(headers.joinIntoString("\r\n"));
+        .withExtraHeaders(extraHeaders);
 
     if (auto stream = url.createInputStream(options)) {
         auto body = stream->readEntireStreamAsString().toStdString();

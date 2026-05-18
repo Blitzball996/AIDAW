@@ -3,9 +3,9 @@
 
 namespace aidaw {
 
-class AiDawApplication::MainWindow : public juce::DocumentWindow {
+class MainAppWindow : public juce::DocumentWindow {
 public:
-    MainWindow()
+    MainAppWindow()
         : DocumentWindow("AIDAW",
                          juce::Desktop::getInstance().getDefaultLookAndFeel()
                              .findColour(ResizableWindow::backgroundColourId),
@@ -18,12 +18,12 @@ public:
     }
 
     void closeButtonPressed() override {
-        JUCEApplication::getInstance()->systemRequestedQuit();
+        juce::JUCEApplication::getInstance()->systemRequestedQuit();
     }
 };
 
 void AiDawApplication::initialise(const juce::String& /*commandLine*/) {
-    mainWindow = std::make_unique<MainWindow>();
+    mainWindow = std::make_unique<MainAppWindow>();
 }
 
 void AiDawApplication::shutdown() {

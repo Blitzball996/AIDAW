@@ -32,11 +32,10 @@ LlmResponse RelayLlmClient::send(const LlmRequest& request) {
     auto postData = juce::JSON::toString(juce::var(root.release()));
     auto url = juce::URL(juce::String(relayUrl)).withPOSTData(postData);
 
-    juce::StringPairArray headers;
-    headers.set("Content-Type", "application/json");
+    juce::String extraHeaders = "Content-Type: application/json";
 
     auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inPostData)
-        .withExtraHeaders(headers.joinIntoString("\r\n"));
+        .withExtraHeaders(extraHeaders);
 
     if (auto stream = url.createInputStream(options)) {
         auto body = stream->readEntireStreamAsString();

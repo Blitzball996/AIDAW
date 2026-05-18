@@ -12,7 +12,7 @@ endif()
 
 # Compiler flags
 if(MSVC)
-    add_compile_options(/W3 /FS)
+    add_compile_options(/W3 /FS /Zc:char8_t-)
     set(CMAKE_CXX_FLAGS_DEBUG "/Zi /Od")
     set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
 else()
