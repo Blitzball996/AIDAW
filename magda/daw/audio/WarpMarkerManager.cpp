@@ -1,0 +1,342 @@
+#include "WarpMarkerManager.hpp"
+
+#include "../core/ClipManager.hpp"
+#include "AudioThumbnailManager.hpp"
+
+namespace magda {
+
+namespace {
+// Helper to find WaveAudioClip from a TE engine ID.
+// Searches both arrangement clips on the timeline and session clips in slots.
+te::WaveAudioClip* findWaveAudioClipByEngineId(te::Edit& edit, const std::string& engineId) {
+    if (engineId.empty())
+        return nullptr;
+    for (auto* track : te::getAudioTracks(edit)) {
+        // Search arrangement clips on the timeline
+        for (auto* teClip : track->getClips()) {
+            if (teClip->itemID.toString().toStdString() == engineId) {
+                return dynamic_cast<te::WaveAudioClip*>(teClip);
+            }
+        }
+        // Search session clips in clip slots
+        for (auto* slot : track->getClipSlotList().getClipSlots()) {
+            if (auto* teClip = slot->getClip()) {
+                if (teClip->itemID.toString().toStdString() == engineId) {
+                    return dynamic_cast<te::WaveAudioClip*>(teClip);
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+// Convenience wrapper: resolve via the caller's clipIdToEngineId map.
+te::WaveAudioClip* findWaveAudioClip(te::Edit& edit,
+                                     const std::map<ClipId, std::string>& clipIdToEngineId,
+                                     ClipId clipId) {
+    auto it = clipIdToEngineId.find(clipId);
+    if (it == clipIdToEngineId.end())
+        return nullptr;
+    return findWaveAudioClipByEngineId(edit, it->second);
+}
+}  // namespace
+
+WarpMarkerManager::~WarpMarkerManager() {
+    // Stop the coalescing timer before any of our maps are torn down so
+    // a fire mid-destruction can't reach into half-destroyed state.
+    coalescingTimer_.stopTimer();
+    coalescingTimer_.callback = nullptr;
+}
+
+void WarpMarkerManager::setTransientSensitivity(
+    te::Edit& edit, const std::map<ClipId, std::string>& clipIdToEngineId, ClipId clipId,
+    float sensitivity) {
+    // Coalesce: just record the latest value per clip and (re)start a
+    // short timer. Hot paths (slider drags) hit this method many times
+    // per second; we want exactly ONE TE detection job per clip per
+    // coalescing window.
+    //
+    // Resolve the engineId at queue time (a single map lookup) instead
+    // of snapshotting the whole clipIdToEngineId map per call — the map
+    // can be large for arrangements and copying it on every slider tick
+    // would dominate even with coalescing.
+    PendingDetection& slot = pendingByClip_[clipId];
+    slot.sensitivity = sensitivity;
+    auto it = clipIdToEngineId.find(clipId);
+    slot.engineId = (it != clipIdToEngineId.end()) ? it->second : std::string{};
+    slot.edit = &edit;
+
+    coalescingTimer_.callback = [this]() { applyPendingSensitivities(); };
+    coalescingTimer_.startTimer(kCoalesceMs);
+}
+
+void WarpMarkerManager::applyPendingSensitivities() {
+    auto pending = std::move(pendingByClip_);
+    pendingByClip_.clear();
+
+    for (const auto& [clipId, det] : pending) {
+        if (det.edit == nullptr)
+            continue;
+
+        // If a detection is already in flight for this clip, parking
+        // the latest value is enough — getTransientTimes will pick it
+        // up on completion and schedule one rerun. This avoids the
+        // race that produced the original ThreadPool crash: never two
+        // overlapping detection jobs against the same WarpTimeManager.
+        if (detectionInFlight_.count(clipId)) {
+            dirtyAfterCompletion_[clipId] = det;
+            continue;
+        }
+        applySensitivityNow(*det.edit, det.engineId, clipId, det.sensitivity);
+    }
+}
+
+void WarpMarkerManager::applySensitivityNow(te::Edit& edit, const std::string& engineId,
+                                            ClipId clipId, float sensitivity) {
+    const auto* clip = ClipManager::getInstance().getClip(clipId);
+    if (!clip || !clip->isAudio() || clip->audio().source.filePath.isEmpty())
+        return;
+
+    te::WaveAudioClip* audioClipPtr = findWaveAudioClipByEngineId(edit, engineId);
+    if (!audioClipPtr)
+        return;
+
+    auto& warpManager = audioClipPtr->getWarpTimeManager();
+    // TODO: setTransientSensitivity/detectTransients not in upstream TE
+    // warpManager.setTransientSensitivity(sensitivity);
+    // warpManager.detectTransients();
+    (void)warpManager;
+    (void)sensitivity;
+
+    // Clear cache so the next poll picks up fresh results.
+    AudioThumbnailManager::getInstance().clearCachedTransients(clip->audio().source.filePath);
+    detectionStarted_.insert(clipId);
+    detectionInFlight_.insert(clipId);
+
+    DBG("WarpMarkerManager: set sensitivity=" << sensitivity << " for "
+                                              << clip->audio().source.filePath);
+}
+
+bool WarpMarkerManager::getTransientTimes(te::Edit& edit,
+                                          const std::map<ClipId, std::string>& clipIdToEngineId,
+                                          ClipId clipId) {
+    // Get clip info for file path
+    const auto* clip = ClipManager::getInstance().getClip(clipId);
+    if (!clip || !clip->isAudio() || clip->audio().source.filePath.isEmpty()) {
+        return false;
+    }
+
+    // Check cache first
+    auto& thumbnailManager = AudioThumbnailManager::getInstance();
+    if (thumbnailManager.getCachedTransients(clip->audio().source.filePath) != nullptr) {
+        return true;
+    }
+
+    // Find TE WaveAudioClip via shared helper
+    te::WaveAudioClip* audioClipPtr = findWaveAudioClip(edit, clipIdToEngineId, clipId);
+    if (!audioClipPtr) {
+        return false;
+    }
+
+    // Get WarpTimeManager from the clip
+    auto& warpManager = audioClipPtr->getWarpTimeManager();
+
+    // Kick off detection if not already running. detectTransients() uses
+    // getOrCreateDetectionJob which returns the existing job if one is
+    // already in flight for this file+config, so calling it once is safe.
+    // We must NOT call it on every poll because it resets transientTimes.
+    //
+    // Mark in-flight here too — without this, a sensitivity change that
+    // arrives during the initial poll-driven detection wouldn't see the
+    // guard and would submit a second overlapping TE job, reproducing
+    // the original ThreadPool crash.
+    if (!detectionStarted_.count(clipId)) {
+        // TODO: detectTransients not in upstream TE
+        // warpManager.detectTransients();
+        detectionStarted_.insert(clipId);
+        detectionInFlight_.insert(clipId);
+    }
+
+    // Poll for completion
+    auto [complete, transientPositions] = warpManager.getTransientTimes();
+
+    if (complete) {
+        // Detection finished — clear the in-flight flag.
+        detectionInFlight_.erase(clipId);
+
+        // If a newer sensitivity arrived while we were running, fire
+        // one more detection with that value. Skip caching the
+        // about-to-be-stale results and report `false` so the UI keeps
+        // polling until the rerun completes.
+        auto dirty = dirtyAfterCompletion_.find(clipId);
+        if (dirty != dirtyAfterCompletion_.end()) {
+            const auto det = std::move(dirty->second);
+            dirtyAfterCompletion_.erase(dirty);
+            if (det.edit != nullptr) {
+                applySensitivityNow(*det.edit, det.engineId, clipId, det.sensitivity);
+                return false;
+            }
+        }
+
+        // No dirt — cache the result and report complete.
+        juce::Array<double> times;
+        times.ensureStorageAllocated(transientPositions.size());
+        for (const auto& tp : transientPositions) {
+            times.add(tp.inSeconds());
+        }
+
+        thumbnailManager.cacheTransients(clip->audio().source.filePath, times);
+        DBG("WarpMarkerManager: Cached " << times.size() << " transients for "
+                                         << clip->audio().source.filePath);
+        return true;
+    }
+
+    return false;
+}
+
+void WarpMarkerManager::enableWarp(te::Edit& edit,
+                                   const std::map<ClipId, std::string>& clipIdToEngineId,
+                                   ClipId clipId) {
+    auto* audioClipPtr = findWaveAudioClip(edit, clipIdToEngineId, clipId);
+    if (!audioClipPtr)
+        return;
+
+    auto& warpManager = audioClipPtr->getWarpTimeManager();
+
+    // Remove any existing markers (creates default boundaries at 0 and sourceLen)
+    warpManager.removeAllMarkers();
+
+    // Get clip info
+    const auto* clip = ClipManager::getInstance().getClip(clipId);
+    if (!clip)
+        return;
+
+    // Get the clip's offset - this is where playback starts in the source file
+    double clipOffset = clip->getSourceOffset();
+
+    // Get cached transients from AudioThumbnailManager
+    auto* cachedTransients =
+        AudioThumbnailManager::getInstance().getCachedTransients(clip->audio().source.filePath);
+    DBG("WarpMarkerManager::enableWarp cachedTransients="
+        << (cachedTransients ? juce::String(cachedTransients->size()) : "null")
+        << " file=" << clip->audio().source.filePath << " offset=" << clipOffset);
+    if (cachedTransients) {
+        // Insert identity-mapped markers at each transient position within the visible range
+        double bpm = edit.tempoSequence.getBpmAt(te::TimePosition());
+        if (bpm <= 0.0)
+            bpm = 120.0;
+        double visibleEnd = clipOffset + clip->timelineToSource(clip->getTimelineLength(bpm));
+        for (double t : *cachedTransients) {
+            // Only include transients within the visible portion of the clip
+            if (t >= clipOffset && t <= visibleEnd) {
+                auto pos = te::TimePosition::fromSeconds(t);
+                warpManager.insertMarker(te::WarpMarker(pos, pos));
+            }
+        }
+    }
+
+    // Set end marker to source length
+    auto sourceLen = warpManager.getSourceLength();
+    warpManager.setWarpEndMarkerTime(te::TimePosition::fromSeconds(0.0) + sourceLen);
+
+    // Warp requires a valid time stretch mode — TE only auto-upgrades for
+    // autoTempo/autoPitch, not for warp-only clips.
+    if (audioClipPtr->getTimeStretchMode() == te::TimeStretcher::disabled) {
+        audioClipPtr->setTimeStretchMode(te::TimeStretcher::defaultMode);
+    }
+
+    audioClipPtr->setWarpTime(true);
+
+    DBG("WarpMarkerManager::enableWarp clip " << clipId << " -> " << warpManager.getMarkers().size()
+                                              << " markers");
+}
+
+void WarpMarkerManager::disableWarp(te::Edit& edit,
+                                    const std::map<ClipId, std::string>& clipIdToEngineId,
+                                    ClipId clipId) {
+    auto* audioClipPtr = findWaveAudioClip(edit, clipIdToEngineId, clipId);
+    if (!audioClipPtr)
+        return;
+
+    auto& warpManager = audioClipPtr->getWarpTimeManager();
+    warpManager.removeAllMarkers();
+    audioClipPtr->setWarpTime(false);
+
+    DBG("WarpMarkerManager::disableWarp clip " << clipId);
+}
+
+std::vector<WarpMarkerInfo> WarpMarkerManager::getWarpMarkers(
+    te::Edit& edit, const std::map<ClipId, std::string>& clipIdToEngineId, ClipId clipId) {
+    std::vector<WarpMarkerInfo> result;
+
+    auto* audioClipPtr = findWaveAudioClip(edit, clipIdToEngineId, clipId);
+    if (!audioClipPtr) {
+        DBG("WarpMarkerManager::getWarpMarkers clip " << clipId << " -> no TE clip found");
+        return result;
+    }
+
+    auto& warpManager = audioClipPtr->getWarpTimeManager();
+    const auto& markers = warpManager.getMarkers();
+
+    // Return ALL markers including TE's boundary markers at (0,0) and (sourceLen,sourceLen).
+    // The visual renderer needs the same boundaries as the audio engine for correct interpolation.
+    int count = markers.size();
+    result.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        auto* marker = markers.getUnchecked(i);
+        result.push_back({marker->sourceTime.inSeconds(), marker->warpTime.inSeconds()});
+    }
+
+    return result;
+}
+
+int WarpMarkerManager::addWarpMarker(te::Edit& edit,
+                                     const std::map<ClipId, std::string>& clipIdToEngineId,
+                                     ClipId clipId, double sourceTime, double warpTime) {
+    auto* audioClipPtr = findWaveAudioClip(edit, clipIdToEngineId, clipId);
+    if (!audioClipPtr) {
+        DBG("WarpMarkerManager::addWarpMarker - clip not found");
+        return -1;
+    }
+
+    auto& warpManager = audioClipPtr->getWarpTimeManager();
+    int markerCountBefore = warpManager.getMarkers().size();
+
+    int teIndex = warpManager.insertMarker(te::WarpMarker(te::TimePosition::fromSeconds(sourceTime),
+                                                          te::TimePosition::fromSeconds(warpTime)));
+
+    int markerCountAfter = warpManager.getMarkers().size();
+    DBG("WarpMarkerManager::addWarpMarker clip "
+        << clipId << " src=" << sourceTime << " warp=" << warpTime << " -> teIndex=" << teIndex
+        << " (markers: " << markerCountBefore << " -> " << markerCountAfter << ")");
+
+    // Return TE index directly - UI now uses the same index space
+    return teIndex;
+}
+
+double WarpMarkerManager::moveWarpMarker(te::Edit& edit,
+                                         const std::map<ClipId, std::string>& clipIdToEngineId,
+                                         ClipId clipId, int index, double newWarpTime) {
+    auto* audioClipPtr = findWaveAudioClip(edit, clipIdToEngineId, clipId);
+    if (!audioClipPtr)
+        return newWarpTime;
+
+    // Use TE index directly - UI now uses the same index space
+    auto& warpManager = audioClipPtr->getWarpTimeManager();
+    auto result = warpManager.moveMarker(index, te::TimePosition::fromSeconds(newWarpTime));
+    return result.inSeconds();
+}
+
+void WarpMarkerManager::removeWarpMarker(te::Edit& edit,
+                                         const std::map<ClipId, std::string>& clipIdToEngineId,
+                                         ClipId clipId, int index) {
+    auto* audioClipPtr = findWaveAudioClip(edit, clipIdToEngineId, clipId);
+    if (!audioClipPtr)
+        return;
+
+    // Use TE index directly - UI now uses the same index space
+    auto& warpManager = audioClipPtr->getWarpTimeManager();
+    warpManager.removeMarker(index);
+}
+
+}  // namespace magda

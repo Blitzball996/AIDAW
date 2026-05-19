@@ -1,0 +1,696 @@
+#pragma once
+
+#include <memory>
+#include <optional>
+#include <unordered_map>
+#include <vector>
+
+#include "ClipInfo.hpp"
+#include "ClipOperations.hpp"
+#include "ClipTypes.hpp"
+#include "TrackTypes.hpp"
+
+namespace magda {
+
+/**
+ * @brief Listener interface for clip changes
+ */
+class ClipManagerListener {
+  public:
+    virtual ~ClipManagerListener() = default;
+
+    // Called when clips are added, removed, or reordered
+    virtual void clipsChanged() = 0;
+
+    // Called when a specific clip's properties change
+    virtual void clipPropertyChanged(ClipId clipId) {
+        juce::ignoreUnused(clipId);
+    }
+
+    // Called when multiple clips' properties change in a batch (e.g. multi-selection drag).
+    // Default falls back to per-clip notifications; override for batch optimisation.
+    virtual void clipPropertiesChanged(const std::vector<ClipId>& clipIds) {
+        for (auto id : clipIds)
+            clipPropertyChanged(id);
+    }
+
+    // Called when clip selection changes
+    virtual void clipSelectionChanged(ClipId clipId) {
+        juce::ignoreUnused(clipId);
+    }
+
+    // Called when clip playback state changes (session view)
+    virtual void clipPlaybackStateChanged(ClipId clipId) {
+        juce::ignoreUnused(clipId);
+    }
+
+    // Called when a clip playback is requested (Play or Stop)
+    virtual void clipPlaybackRequested(ClipId clipId, ClipPlaybackRequest request) {
+        juce::ignoreUnused(clipId, request);
+    }
+
+    // Called during clip drag for real-time preview updates
+    virtual void clipDragPreview(ClipId clipId, double previewStartTime, double previewLength) {
+        juce::ignoreUnused(clipId, previewStartTime, previewLength);
+    }
+};
+
+/**
+ * @brief Singleton manager for all clips in the project
+ *
+ * Provides CRUD operations for clips and notifies listeners of changes.
+ */
+class ClipManager {
+  public:
+    static ClipManager& getInstance();
+
+    // Prevent copying
+    ClipManager(const ClipManager&) = delete;
+    ClipManager& operator=(const ClipManager&) = delete;
+
+    /**
+     * @brief Shutdown and clear all resources
+     * Call during app shutdown to prevent static cleanup issues
+     */
+    void shutdown() {
+        clips_.clear();
+        sessionSlotIndex_.clear();
+    }
+
+    // ========================================================================
+    // Clip Creation
+    // ========================================================================
+
+    /**
+     * @brief Create an audio clip from a file — beats-authoritative API.
+     *
+     * Source duration, offset, and loop fields remain source-domain seconds.
+     * Timeline placement is stored in beats and seconds are derived only for
+     * bridge/UI compatibility.
+     */
+    ClipId createAudioClipBeats(TrackId trackId, double startBeats, double lengthBeats,
+                                const juce::String& audioFilePath,
+                                ClipView view = ClipView::Arrangement, double projectBPM = 0.0);
+
+    /**
+     * @brief Create an audio clip from timeline seconds.
+     *
+     * Thin shim around createAudioClipBeats for UI/engine boundaries whose
+     * natural input is still seconds.
+     */
+    ClipId createAudioClip(TrackId trackId, double startTime, double length,
+                           const juce::String& audioFilePath, ClipView view = ClipView::Arrangement,
+                           double projectBPM = 0.0);
+
+    /**
+     * @brief Create an empty MIDI clip — beats-authoritative API.
+     *
+     * Beats are the canonical positioning unit for MIDI clips in MAGDA.
+     * Use this whenever the caller has musical units (bars, beats, ticks)
+     * — never compute beats by going through seconds first. Seconds are
+     * derived from the project tempo at clip-creation time and stored as
+     * a display cache only; they are NOT round-tripped back into beats.
+     */
+    ClipId createMidiClipBeats(TrackId trackId, double startBeats, double lengthBeats,
+                               ClipView view = ClipView::Arrangement);
+
+    /**
+     * @brief Create an empty MIDI clip from seconds.
+     *
+     * Thin shim around createMidiClipBeats — only legitimate when the
+     * caller's natural unit is seconds (recording from the audio thread,
+     * timeline drops measured in pixels-as-time). Anything driven by
+     * musical input should call createMidiClipBeats directly.
+     *
+     * @param view Which view the clip belongs to (Arrangement or Session)
+     * @param startTime Position on timeline - only used for Arrangement view
+     */
+    ClipId createMidiClip(TrackId trackId, double startTime, double length,
+                          ClipView view = ClipView::Arrangement);
+
+    /**
+     * @brief Delete a clip
+     */
+    void deleteClip(ClipId clipId);
+
+    /**
+     * @brief Restore a clip from full ClipInfo (used by undo system)
+     */
+    void restoreClip(const ClipInfo& clipInfo);
+
+    /**
+     * @brief Force a clips changed notification (used by undo system)
+     */
+    void forceNotifyClipsChanged();
+
+    /**
+     * @brief Force a clip property changed notification for a specific clip
+     * Used by commands that directly modify clip data without going through ClipManager methods
+     */
+    void forceNotifyClipPropertyChanged(ClipId clipId);
+    void forceNotifyMultipleClipPropertiesChanged(const std::vector<ClipId>& clipIds);
+
+    /**
+     * @brief Duplicate a clip (places copy right after original)
+     * @return The ID of the new clip
+     */
+    ClipId duplicateClip(ClipId clipId);
+
+    /**
+     * @brief Duplicate a clip at a specific beat position.
+     */
+    ClipId duplicateClipAtBeats(ClipId clipId, double startBeat, TrackId trackId = INVALID_TRACK_ID,
+                                double tempo = 0.0);
+
+    /**
+     * @brief Duplicate a clip at a specific timeline-second position.
+     * @param clipId The clip to duplicate
+     * @param startTime Where to place the duplicate
+     * @param trackId Track for the duplicate (INVALID_TRACK_ID = same track)
+     * @return The ID of the new clip
+     */
+    ClipId duplicateClipAt(ClipId clipId, double startTime, TrackId trackId = INVALID_TRACK_ID,
+                           double tempo = 120.0);
+
+    // ========================================================================
+    // Clip Manipulation
+    // ========================================================================
+
+    /** @brief Move clip to a new start beat. */
+    void moveClipBeats(ClipId clipId, double newStartBeat, double tempo = 0.0);
+
+    /** @brief Move clip to a new timeline-second start. */
+    void moveClip(ClipId clipId, double newStartTime, double tempo = 0.0);
+
+    /**
+     * @brief Move clip to a different track
+     */
+    void moveClipToTrack(ClipId clipId, TrackId newTrackId);
+
+    /** @brief Resize clip to a new beat length. */
+    void resizeClipBeats(ClipId clipId, double newLengthBeats, bool fromStart = false,
+                         double tempo = 0.0);
+
+    /** @brief Resize clip to a new timeline-second length. */
+    void resizeClip(ClipId clipId, double newLength, bool fromStart = false, double tempo = 120.0);
+
+    /** @brief Split a clip at a specific beat position. */
+    ClipId splitClipAtBeat(ClipId clipId, double splitBeat, double tempo = 0.0);
+
+    /** @brief Split a clip at a specific timeline-second position. */
+    ClipId splitClip(ClipId clipId, double splitTime, double tempo = 120.0);
+
+    /** @brief Trim clip to a beat range. */
+    void trimClipBeats(ClipId clipId, double newStartBeat, double newLengthBeats,
+                       double tempo = 0.0);
+
+    /** @brief Trim clip to a timeline-second range. */
+    void trimClip(ClipId clipId, double newStartTime, double newLength, double tempo = 0.0);
+
+    // ========================================================================
+    // Clip Properties
+    // ========================================================================
+
+    void setClipName(ClipId clipId, const juce::String& name);
+    void setClipColour(ClipId clipId, juce::Colour colour);
+    void setClipLoopEnabled(ClipId clipId, bool enabled, double projectBPM = 120.0);
+    void setClipMidiOffset(ClipId clipId, double offsetBeats);
+    void setClipLaunchMode(ClipId clipId, LaunchMode mode);
+    void setClipLaunchQuantize(ClipId clipId, LaunchQuantize quantize);
+    void setClipFollowAction(ClipId clipId, FollowAction action);
+    void setClipFollowActionDelayBeats(ClipId clipId, double delayBeats);
+    void setClipFollowActionLoopCount(ClipId clipId, int loopCount);
+
+    // Warp
+    /** @brief Enable or disable warp markers on an audio clip */
+    void setClipWarpEnabled(ClipId clipId, bool enabled);
+
+    // -- Audio loop / offset setters (TE-aligned model) --
+    //
+    // Each setter has a deliberately narrow scope. If you need a composite
+    // "drag the whole loop region" operation that also resets phase, call
+    // relocateLoopRegion — that's the only setter that intentionally
+    // touches a sibling field beyond the one its name advertises.
+    //
+    // The bpm argument on the audio setters is only consulted when
+    // autoTempo is enabled and the source-interpretation BPM is missing;
+    // it backfills the seconds-to-beats conversion. autoTempo clips with
+    // a known source BPM ignore it.
+
+    /** @brief Set the offset (playback start position) in the audio file
+     *         (source-time seconds). Does NOT touch loop fields. */
+    void setOffset(ClipId clipId, double offset);
+
+    /** @brief Set the loop phase — i.e. set offset = loopStart + phase.
+     *         Audio + loop-active clips only. Does NOT touch loopStart. */
+    void setLoopPhase(ClipId clipId, double phase);
+
+    /** @brief Set the loop region start (source-time seconds). Does NOT
+     *         touch offset / phase. */
+    void setLoopStart(ClipId clipId, double loopStart, double bpm = 120.0);
+
+    /** @brief Set the loop region length (source-time seconds). Does NOT
+     *         touch offset / phase / loop start. */
+    void setLoopLength(ClipId clipId, double loopLength, double bpm = 120.0);
+
+    /** @brief Composite operation: relocate the loop region (start + length)
+     *         AND snap phase to 0 by setting offset = loopStart whenever
+     *         loopStart actually moved.
+     *
+     *         Use this for editor drag gestures where the user is
+     *         relocating the whole loop region as one unit. Use the
+     *         narrower setLoopStart / setLoopLength setters for inspector
+     *         spinner edits where phase must be preserved. */
+    void relocateLoopRegion(ClipId clipId, double loopStart, double loopLength, double bpm = 120.0);
+    /** @brief Set the clip timeline length in beats (autoTempo mode only) */
+    void setLengthBeats(ClipId clipId, double beats, double bpm);
+
+    // =====================================================================
+    // Session audio-clip canonical update path (issue #1157)
+    //
+    // For session/autoTempo audio clips, ClipInfo holds two roles:
+    //   - SOURCE INTERPRETATION — AudioClipModel::interpretation. The file's
+    //     musical reading, user-correctable and never clip placement.
+    //   - USER INTENT — lengthBeats (timeline beats the clip occupies on
+    //     the session/timeline), loopStartBeats / loopLengthBeats (sub-loop
+    //     region in source-beat domain), offsetBeats, startBeats. The beat
+    //     slider edits lengthBeats and never touches source interpretation.
+    //
+    // Time-domain fields (length, startTime, offset, loopStart, loopLength)
+    // are DERIVED inside applyAudioClipBeats and must not be set directly
+    // by callers in this path. speedRatio is forced to 1.0.
+    // =====================================================================
+    struct AudioClipBeatsUpdate {
+        std::optional<double> sourceDurationSeconds;
+        std::optional<double> interpretationBpm;
+        std::optional<double> interpretationTotalBeats;
+        bool lockInterpretationTotalBeats = false;
+        std::optional<double> lengthBeats;
+        std::optional<double> loopStartBeats;
+        std::optional<double> loopLengthBeats;
+        std::optional<double> offsetBeats;
+        std::optional<double> startBeats;
+    };
+
+    /** @brief Apply a partial canonical update to a session/autoTempo audio
+     *         clip and atomically recompute every derived field. Single
+     *         update path for inspector BPM edit, beat-length slider, and
+     *         BPM-detection callbacks. No-op for non-autoTempo / non-audio
+     *         clips. */
+    void applyAudioClipBeats(ClipId clipId, const AudioClipBeatsUpdate& update, double projectBPM);
+
+    /** @brief Refresh the seconds-domain cache (length, startTime, offset,
+     *         loopStart, loopLength) on a beat-authoritative clip from its
+     *         canonical beat fields. No-op for time-authoritative clips.
+     *
+     *  Called by applyAudioClipBeats and by TimelineController on project-BPM
+     *  change. Does NOT notify listeners — caller's responsibility. */
+    void refreshDerivedSeconds(ClipId clipId, double projectBPM);
+
+    /** @brief Enable/disable auto-tempo (beat-locked) mode for an audio clip */
+    void setAutoTempo(ClipId clipId, bool enabled, double bpm);
+    /** @brief Set the playback speed ratio (1.0 = original, 2.0 = double speed) - TE:
+     * Clip::speedRatio */
+    void setSpeedRatio(ClipId clipId, double speedRatio);
+    /** @brief Set the time-stretch algorithm mode for an audio clip */
+    void setTimeStretchMode(ClipId clipId, int mode);
+
+    // Pitch
+    void setAutoPitch(ClipId clipId, bool enabled);
+    void setAnalogPitch(ClipId clipId, bool enabled);
+    void setAutoPitchMode(ClipId clipId, int mode);
+    void setPitchChange(ClipId clipId, float semitones);
+    void setTranspose(ClipId clipId, int semitones);
+
+    // Beat Detection
+    void setAutoDetectBeats(ClipId clipId, bool enabled);
+    void setBeatSensitivity(ClipId clipId, float sensitivity);
+
+    // Playback
+    void setIsReversed(ClipId clipId, bool reversed);
+
+    // Per-Clip Mix
+    void setClipVolumeDB(ClipId clipId, float dB);
+    void setClipGainDB(ClipId clipId, float dB);
+    void setClipPan(ClipId clipId, float pan);
+
+    // Fades
+    void setFadeIn(ClipId clipId, double seconds);
+    void setFadeOut(ClipId clipId, double seconds);
+    void setFadeInType(ClipId clipId, int type);
+    void setFadeOutType(ClipId clipId, int type);
+    void setFadeInBehaviour(ClipId clipId, int behaviour);
+    void setFadeOutBehaviour(ClipId clipId, int behaviour);
+    void setAutoCrossfade(ClipId clipId, bool enabled);
+
+    void setLaunchFadeSamples(ClipId clipId, int samples);
+
+    // Channels
+    void setLeftChannelActive(ClipId clipId, bool active);
+    void setRightChannelActive(ClipId clipId, bool active);
+
+    // Groove/Shuffle/Swing (MIDI clips)
+    void setGrooveTemplate(ClipId clipId, const juce::String& templateName);
+    void setGrooveStrength(ClipId clipId, float strength);
+
+    // Per-clip grid settings (MIDI editor)
+    void setClipGridSettings(ClipId clipId, bool autoGrid, int numerator, int denominator);
+    void setClipSnapEnabled(ClipId clipId, bool enabled);
+
+    // ========================================================================
+    // Content-Level Operations (Editor Operations)
+    // ========================================================================
+    //
+    // These methods wrap ClipOperations and provide automatic notification.
+    // Use these for:
+    // - Command pattern (undo/redo)
+    // - External callers
+    // - Non-interactive operations
+    //
+    // For interactive operations (drag), components may access clips directly
+    // via getClip() and use ClipOperations for performance, then call
+    // forceNotifyClipPropertyChanged() once on mouseUp.
+    //
+    // ========================================================================
+
+    /**
+     * @brief Trim/extend audio from left edge
+     * @param trimAmount Amount to trim in timeline seconds (positive=trim, negative=extend)
+     * @param fileDuration Total file duration for constraint checking (0 = no constraint)
+     */
+    void trimAudioLeft(ClipId clipId, double trimAmount, double fileDuration = 0.0);
+
+    /**
+     * @brief Trim/extend audio from right edge
+     * @param trimAmount Amount to trim in timeline seconds (positive=trim, negative=extend)
+     * @param fileDuration Total file duration for constraint checking (0 = no constraint)
+     */
+    void trimAudioRight(ClipId clipId, double trimAmount, double fileDuration = 0.0);
+
+    /**
+     * @brief Stretch audio from left edge (editor operation)
+     * @param newLength New timeline length
+     * @param oldLength Original timeline length at drag start
+     * @param originalSpeedRatio Original speed ratio at drag start
+     */
+    void stretchAudioLeft(ClipId clipId, double newLength, double oldLength,
+                          double originalSpeedRatio, double bpm = 0.0);
+
+    /**
+     * @brief Stretch audio from right edge (editor operation)
+     * @param newLength New timeline length
+     * @param oldLength Original timeline length at drag start
+     * @param originalSpeedRatio Original speed ratio at drag start
+     */
+    void stretchAudioRight(ClipId clipId, double newLength, double oldLength,
+                           double originalSpeedRatio, double bpm = 0.0);
+
+    // MIDI-specific
+    bool addMidiNote(ClipId clipId, const MidiNote& note);
+    void removeMidiNote(ClipId clipId, int noteIndex);
+    void clearMidiNotes(ClipId clipId);
+
+    // Chord annotations
+    void addChordAnnotation(ClipId clipId, const ClipInfo::ChordAnnotation& annotation);
+    void removeChordAnnotation(ClipId clipId, size_t index);
+    void clearChordAnnotations(ClipId clipId);
+
+    // ========================================================================
+    // Access
+    // ========================================================================
+
+    /**
+     * @brief Get all arrangement clips (timeline-based)
+     */
+    std::vector<ClipInfo> getArrangementClips() const;
+
+    /**
+     * @brief Get all session clips (scene-based)
+     */
+    std::vector<ClipInfo> getSessionClips() const;
+
+    /**
+     * @brief Get all clips (both arrangement and session)
+     */
+    std::vector<ClipInfo> getClips() const;
+
+    ClipInfo* getClip(ClipId clipId);
+    const ClipInfo* getClip(ClipId clipId) const;
+
+    /**
+     * @brief Get all clips on a specific track
+     */
+    std::vector<ClipId> getClipsOnTrack(TrackId trackId) const;
+    std::vector<ClipId> getClipsOnTrack(TrackId trackId, ClipView view) const;
+
+    /**
+     * @brief Get clip at a specific position on a track
+     * @return INVALID_CLIP_ID if no clip at position
+     */
+    ClipId getClipAtPosition(TrackId trackId, double time) const;
+
+    /**
+     * @brief Get clips that overlap with a time range on a track
+     */
+    std::vector<ClipId> getClipsInRange(TrackId trackId, double startTime, double endTime) const;
+
+    // ========================================================================
+    // Selection
+    // ========================================================================
+
+    void setSelectedClip(ClipId clipId);
+    ClipId getSelectedClip() const {
+        return selectedClipId_;
+    }
+    void clearClipSelection();
+
+    /** The last session clip that was triggered via triggerClip(). Persists
+        across transport stop so Record can re-trigger it. */
+    ClipId getLastTriggeredSessionClip() const {
+        return lastTriggeredSessionClipId_;
+    }
+
+    // ========================================================================
+    // Clipboard Operations
+    // ========================================================================
+
+    /**
+     * @brief Copy selected clips to clipboard
+     * @param clipIds The clips to copy
+     */
+    void copyToClipboard(const std::unordered_set<ClipId>& clipIds);
+
+    /**
+     * @brief Copy the overlapping portions of clips within a time range to clipboard
+     * @param startTime Start of time range
+     * @param endTime End of time range
+     * @param trackIds Tracks to copy from (empty = all arrangement tracks)
+     */
+    void copyTimeRangeToClipboard(double startTime, double endTime,
+                                  const std::vector<TrackId>& trackIds, double tempoBPM = 120.0);
+
+    /**
+     * @brief Paste clips from clipboard
+     * @param pasteTime Timeline position to paste at
+     * @param targetTrackId Track to paste on (INVALID_TRACK_ID = use original tracks)
+     * @return IDs of the newly created clips
+     */
+    std::vector<ClipId> pasteFromClipboard(double pasteTime,
+                                           TrackId targetTrackId = INVALID_TRACK_ID,
+                                           ClipView targetView = ClipView::Arrangement,
+                                           int targetSceneIndex = -1);
+
+    /**
+     * @brief Cut selected clips to clipboard (copy + delete)
+     * @param clipIds The clips to cut
+     */
+    void cutToClipboard(const std::unordered_set<ClipId>& clipIds);
+
+    /**
+     * @brief Check if clipboard has clips
+     */
+    bool hasClipsInClipboard() const;
+
+    /**
+     * @brief Clear clipboard
+     */
+    void clearClipboard();
+
+    // ========================================================================
+    // Note Clipboard Operations (for MIDI note copy/paste)
+    // ========================================================================
+
+    /**
+     * @brief Copy selected notes to the note clipboard
+     * Notes are stored with startBeat normalised (earliest = 0)
+     */
+    void copyNotesToClipboard(ClipId clipId, const std::vector<size_t>& noteIndices);
+
+    /**
+     * @brief Check if note clipboard has notes
+     */
+    bool hasNotesInClipboard() const;
+
+    /**
+     * @brief Get notes from the clipboard
+     */
+    const std::vector<MidiNote>& getNoteClipboard() const;
+
+    /**
+     * @brief Get the original earliest startBeat before normalisation
+     */
+    double getNoteClipboardMinBeat() const;
+
+    /**
+     * @brief Set note clipboard directly from external notes (e.g. step sequencer pattern export).
+     * Notes are stored as-is — caller is responsible for normalisation if desired.
+     */
+    void setNoteClipboard(std::vector<MidiNote> notes);
+
+    // ========================================================================
+    // Session View (Clip Launcher)
+    // ========================================================================
+
+    /**
+     * @brief Get clip in a specific slot (track + scene)
+     */
+    ClipId getClipInSlot(TrackId trackId, int sceneIndex) const;
+
+    /**
+     * @brief Set scene index for a clip (assigns to session slot)
+     */
+    void setClipSceneIndex(ClipId clipId, int sceneIndex);
+
+    /**
+     * @brief Trigger/stop clip playback (session mode)
+     */
+    void triggerClip(ClipId clipId);
+    void stopClip(ClipId clipId);
+    void stopAllClips();
+
+    // ========================================================================
+    // Listener Management
+    // ========================================================================
+
+    void addListener(ClipManagerListener* listener);
+    void removeListener(ClipManagerListener* listener);
+
+    /**
+     * @brief Suspend and coalesce per-clip property notifications.
+     *
+     * Nestable. While any suspension is active, notifyClipPropertyChanged()
+     * records the clip id into a set instead of firing listeners. When the
+     * outermost suspension ends, a single clipPropertiesChanged(ids) is
+     * fired covering everything that changed during the batch.
+     *
+     * Notes about clipsChanged() (structural changes) are NOT coalesced and
+     * still fire immediately.
+     *
+     * Intended for bulk mutations like AI-driven note generation where
+     * firing per-note would cause O(n) full TE sequence rebuilds plus
+     * O(n) UI repaints.
+     */
+    void beginBatch();
+    void endBatch();
+
+    /// RAII helper for beginBatch/endBatch.
+    class BatchScope {
+      public:
+        BatchScope() {
+            ClipManager::getInstance().beginBatch();
+        }
+        ~BatchScope() {
+            ClipManager::getInstance().endBatch();
+        }
+        BatchScope(const BatchScope&) = delete;
+        BatchScope& operator=(const BatchScope&) = delete;
+    };
+
+    /**
+     * @brief Broadcast drag preview event (called during clip drag for real-time updates)
+     */
+    void notifyClipDragPreview(ClipId clipId, double previewStartTime, double previewLength);
+
+    // ========================================================================
+    // Project Management
+    // ========================================================================
+
+    void clearAllClips();
+
+    /**
+     * @brief Create random test clips for development
+     */
+    void createTestClips();
+
+    /**
+     * @brief Resolve overlaps after placing/moving a dominant clip
+     *
+     * Trims or deletes any arrangement clips on the same track that overlap
+     * with the dominant clip. "Last write wins" semantics.
+     * Called internally by clip creation/move methods.
+     */
+    void resolveOverlaps(ClipId dominantClipId);
+
+    /// Reset a looped clip's length to its base loop length and disable looping
+    void resetLoopedClipLength(ClipInfo& clip);
+
+  private:
+    ClipManager() = default;
+    ~ClipManager() = default;
+
+    // Unified clip storage — ClipView is a property, not storage identity
+    std::unordered_map<ClipId, ClipInfo> clips_;
+
+    // Fast (TrackId, sceneIndex) -> ClipId lookup for session-view slots.
+    // Maintained by every code path that creates/deletes a session clip or
+    // changes its trackId/sceneIndex. Read-only consumers go through
+    // getClipInSlot() — never poke the map directly.
+    //
+    // Why: getClipInSlot is called O(tracks * scenes) per SessionView paint
+    // and from multiple drag/drop and command paths. Scanning all clips on
+    // every call doesn't scale to large grids.
+    std::unordered_map<uint64_t, ClipId> sessionSlotIndex_;
+
+    static uint64_t makeSessionSlotKey(TrackId trackId, int sceneIndex) {
+        return (static_cast<uint64_t>(static_cast<uint32_t>(trackId)) << 32) |
+               static_cast<uint64_t>(static_cast<uint32_t>(sceneIndex));
+    }
+    void addToSessionSlotIndex(const ClipInfo& clip);
+    void removeFromSessionSlotIndex(const ClipInfo& clip);
+
+    // Clipboard storage
+    std::vector<ClipInfo> clipboard_;
+    double clipboardReferenceTime_ = 0.0;  // For maintaining relative positions
+
+    // Note clipboard storage
+    std::vector<MidiNote> noteClipboard_;
+    double noteClipboardMinBeat_ = 0.0;  // Original earliest startBeat before normalisation
+
+    std::vector<ClipManagerListener*> listeners_;
+
+    // Batch notification state (see beginBatch/endBatch).
+    int batchDepth_ = 0;
+    std::vector<ClipId> batchedClipIds_;  // kept in insertion order, deduped
+
+    int nextClipId_ = 1;
+    ClipId selectedClipId_ = INVALID_CLIP_ID;
+    ClipId lastTriggeredSessionClipId_ = INVALID_CLIP_ID;
+
+    // Notification helpers (public so scheduler can emit state changes)
+  public:
+    void notifyClipPlaybackStateChanged(ClipId clipId);
+
+  private:
+    void notifyClipsChanged();
+    void notifyClipPropertyChanged(ClipId clipId);
+    void notifyClipSelectionChanged(ClipId clipId);
+    void notifyClipPlaybackRequested(ClipId clipId, ClipPlaybackRequest request);
+
+    // Clamp audio clip properties (offset, loopStart, loopLength) to file bounds
+    void sanitizeAudioClip(ClipInfo& clip);
+
+    // Helper to generate unique clip name
+    juce::String generateClipName(ClipType type) const;
+};
+
+}  // namespace magda

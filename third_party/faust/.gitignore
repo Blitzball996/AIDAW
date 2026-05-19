@@ -1,0 +1,49 @@
+dox/*
+build/xcode/*
+build/bin/*
+build/lib/*
+build/cmake-build-*
+*~
+compile.sh
+*.aux
+*.log
+*.out
+*.rai
+*.rao
+*.toc
+*.o
+*.mxo
+*.bak
+*.app
+.DS_Store
+*tmp*
+*dir
+windows/_output/
+windows/.vs/
+windows/*.*db
+windows/*.user
+*.opensdf
+*.sdf
+compiler/faust
+user.mk
+### VSCode cache
+.*.VC.db
+.vscode/
+### Xcode Patch ###
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcworkspace/contents.xcworkspacedata
+tests/impulse-tests/ir
+### ESLint
+.eslintrc.json
+*-mdoc
+*-svg
+### Intellij IDEs
+.idea/
+### Pyenv
+.python-version
+### Gradle (Android builds)
+.gradle/
+### CMake
+CMakeFiles/

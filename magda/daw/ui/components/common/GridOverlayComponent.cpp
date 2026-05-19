@@ -1,0 +1,294 @@
+#include "GridOverlayComponent.hpp"
+
+#include "../../layout/LayoutConfig.hpp"
+#include "../../themes/DarkTheme.hpp"
+
+namespace magda {
+
+GridOverlayComponent::GridOverlayComponent() {
+    setInterceptsMouseClicks(false, false);
+}
+
+GridOverlayComponent::~GridOverlayComponent() = default;
+
+void GridOverlayComponent::setController(TimelineController* controller) {
+    timelineListener_.reset(controller);
+
+    if (controller) {
+        // Sync initial state
+        const auto& state = controller->getState();
+        currentZoom = state.zoom.horizontalZoom;
+        timelineLength = state.timelineLength;
+        displayMode = state.display.timeDisplayMode;
+        tempoBPM = state.tempo.bpm;
+        timeSignatureNumerator = state.tempo.timeSignatureNumerator;
+        timeSignatureDenominator = state.tempo.timeSignatureDenominator;
+        gridQuantize = state.display.gridQuantize;
+
+        repaint();
+    }
+}
+
+void GridOverlayComponent::setZoom(double zoom) {
+    if (currentZoom != zoom) {
+        currentZoom = zoom;
+        repaint();
+    }
+}
+
+void GridOverlayComponent::setTimelineLength(double length) {
+    if (timelineLength != length) {
+        timelineLength = length;
+        repaint();
+    }
+}
+
+void GridOverlayComponent::setTimeDisplayMode(TimeDisplayMode mode) {
+    if (displayMode != mode) {
+        displayMode = mode;
+        repaint();
+    }
+}
+
+void GridOverlayComponent::setTempo(double bpm) {
+    if (tempoBPM != bpm) {
+        tempoBPM = bpm;
+        repaint();
+    }
+}
+
+void GridOverlayComponent::setTimeSignature(int numerator, int denominator) {
+    const int clampedNumerator = clampTimeSignatureValue(numerator);
+    const int clampedDenominator = clampTimeSignatureValue(denominator);
+    if (timeSignatureNumerator != clampedNumerator ||
+        timeSignatureDenominator != clampedDenominator) {
+        timeSignatureNumerator = clampedNumerator;
+        timeSignatureDenominator = clampedDenominator;
+        repaint();
+    }
+}
+
+// ===== TimelineStateListener Implementation =====
+
+void GridOverlayComponent::timelineStateChanged(const TimelineState& state, ChangeFlags changes) {
+    bool needsRepaint = false;
+
+    // Zoom/scroll changes
+    if (hasFlag(changes, ChangeFlags::Zoom) || hasFlag(changes, ChangeFlags::Scroll)) {
+        currentZoom = state.zoom.horizontalZoom;
+        needsRepaint = true;
+    }
+
+    // General cache sync with dirty checks
+    if (timelineLength != state.timelineLength) {
+        timelineLength = state.timelineLength;
+        needsRepaint = true;
+    }
+    if (displayMode != state.display.timeDisplayMode) {
+        displayMode = state.display.timeDisplayMode;
+        needsRepaint = true;
+    }
+
+    // Tempo/time-sig don't affect grid pixel positions (ppb zoom) — just store them
+    tempoBPM = state.tempo.bpm;
+    timeSignatureNumerator = state.tempo.timeSignatureNumerator;
+    timeSignatureDenominator = state.tempo.timeSignatureDenominator;
+
+    if (gridQuantize.autoGrid != state.display.gridQuantize.autoGrid ||
+        gridQuantize.numerator != state.display.gridQuantize.numerator ||
+        gridQuantize.denominator != state.display.gridQuantize.denominator) {
+        gridQuantize = state.display.gridQuantize;
+        needsRepaint = true;
+    }
+
+    if (needsRepaint)
+        repaint();
+}
+
+// ===== Paint =====
+
+void GridOverlayComponent::paint(juce::Graphics& g) {
+    auto area = getLocalBounds();
+    drawTimeGrid(g, area);
+    drawBeatOverlay(g, area);
+}
+
+void GridOverlayComponent::drawTimeGrid(juce::Graphics& g, juce::Rectangle<int> area) {
+    if (displayMode == TimeDisplayMode::Seconds) {
+        drawSecondsGrid(g, area);
+    } else {
+        drawBarsBeatsGrid(g, area);
+    }
+}
+
+void GridOverlayComponent::drawSecondsGrid(juce::Graphics& g, juce::Rectangle<int> area) {
+    auto& layout = LayoutConfig::getInstance();
+    const int minPixelSpacing = layout.minGridPixelSpacing;
+
+    // currentZoom is ppb - convert to pps for seconds-mode grid calculation
+    double pps = (tempoBPM > 0) ? currentZoom * tempoBPM / 60.0 : currentZoom;
+
+    // Extended intervals for deep zoom
+    const double intervals[] = {0.0001, 0.0002, 0.0005,                           // Sub-millisecond
+                                0.001,  0.002,  0.005,                            // Milliseconds
+                                0.01,   0.02,   0.05,                             // Centiseconds
+                                0.1,    0.2,    0.25,   0.5,                      // Deciseconds
+                                1.0,    2.0,    5.0,    10.0, 15.0, 30.0, 60.0};  // Seconds
+
+    double gridInterval = 1.0;
+    for (double interval : intervals) {
+        if (static_cast<int>(interval * pps) >= minPixelSpacing) {
+            gridInterval = interval;
+            break;
+        }
+    }
+
+    // Compute visible time range from pixel bounds to avoid iterating the entire timeline
+    double ppsActual = (tempoBPM > 0) ? currentZoom * tempoBPM / 60.0 : currentZoom;
+    double firstVisibleTime =
+        static_cast<double>(area.getX() - leftPadding + scrollOffset) / ppsActual;
+    double lastVisibleTime =
+        static_cast<double>(area.getRight() - leftPadding + scrollOffset) / ppsActual;
+    double startTime = juce::jmax(0.0, std::floor(firstVisibleTime / gridInterval) * gridInterval);
+    double endTime = juce::jmin(lastVisibleTime + gridInterval, timelineLength);
+
+    for (double time = startTime; time <= endTime; time += gridInterval) {
+        // Convert time to beats, then to pixels
+        double beats = time * tempoBPM / 60.0;
+        int x = static_cast<int>(std::round(beats * currentZoom)) + leftPadding - scrollOffset;
+        {
+            // Determine line brightness based on time hierarchy
+            bool isMajor = false;
+            if (gridInterval >= 1.0) {
+                isMajor = true;
+            } else if (gridInterval >= 0.1) {
+                isMajor = std::fmod(time, 1.0) < 0.0001;
+            } else if (gridInterval >= 0.01) {
+                isMajor = std::fmod(time, 0.1) < 0.0001;
+            } else if (gridInterval >= 0.001) {
+                isMajor = std::fmod(time, 0.01) < 0.0001;
+            } else {
+                isMajor = std::fmod(time, 0.001) < 0.00001;
+            }
+
+            if (isMajor) {
+                g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).brighter(0.3f));
+                g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                           static_cast<float>(x), static_cast<float>(area.getBottom()), 1.0f);
+            } else {
+                g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).brighter(0.1f));
+                g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                           static_cast<float>(x), static_cast<float>(area.getBottom()), 0.5f);
+            }
+        }
+    }
+}
+
+void GridOverlayComponent::drawBarsBeatsGrid(juce::Graphics& g, juce::Rectangle<int> area) {
+    auto& layout = LayoutConfig::getInstance();
+    const int minPixelSpacing = layout.minGridPixelSpacing;
+
+    double markerIntervalBeats = 1.0;
+
+    markerIntervalBeats = GridConstants::computeGridInterval(
+        gridQuantize, currentZoom, timeSignatureNumerator, minPixelSpacing);
+
+    double totalTimelineBeats = timelineLength * tempoBPM / 60.0;
+    double barLengthBeats = static_cast<double>(timeSignatureNumerator);
+
+    // Check if grid interval aligns with bar and beat boundaries
+    bool alignsWithBars = GridConstants::gridAlignsWithBars(markerIntervalBeats, barLengthBeats);
+    bool alignsWithBeats = GridConstants::gridAlignsWithBeats(markerIntervalBeats);
+
+    // Compute visible beat range to avoid iterating the entire timeline
+    double firstVisibleBeat =
+        static_cast<double>(area.getX() - leftPadding + scrollOffset) / currentZoom;
+    double lastVisibleBeat =
+        static_cast<double>(area.getRight() - leftPadding + scrollOffset) / currentZoom;
+    double startBeat =
+        juce::jmax(0.0, std::floor(firstVisibleBeat / markerIntervalBeats) * markerIntervalBeats);
+    double endBeat = juce::jmin(lastVisibleBeat + markerIntervalBeats, totalTimelineBeats);
+
+    // Draw grid lines
+    for (double beat = startBeat; beat <= endBeat; beat += markerIntervalBeats) {
+        int x = static_cast<int>(std::round(beat * currentZoom)) + leftPadding - scrollOffset;
+
+        if (alignsWithBars && alignsWithBeats) {
+            // Grid aligns with musical structure — classify normally
+            auto [isBarLine, isBeatLine] =
+                GridConstants::classifyBeatPosition(beat, barLengthBeats);
+
+            if (isBarLine) {
+                g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).brighter(0.4f));
+                g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                           static_cast<float>(x), static_cast<float>(area.getBottom()), 1.5f);
+            } else if (isBeatLine) {
+                g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).brighter(0.2f));
+                g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                           static_cast<float>(x), static_cast<float>(area.getBottom()), 1.0f);
+            } else {
+                g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).brighter(0.05f));
+                g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                           static_cast<float>(x), static_cast<float>(area.getBottom()), 0.5f);
+            }
+        } else {
+            // Grid doesn't align — draw all grid lines as subdivision style
+            g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).brighter(0.05f));
+            g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                       static_cast<float>(x), static_cast<float>(area.getBottom()), 0.5f);
+        }
+    }
+
+    // For non-aligned grids, draw bar/beat reference lines on top
+    if (!alignsWithBars || !alignsWithBeats) {
+        double refStartBeat = juce::jmax(0.0, std::floor(firstVisibleBeat));
+        double refEndBeat = juce::jmin(std::ceil(lastVisibleBeat) + 1.0, totalTimelineBeats);
+        for (double beat = refStartBeat; beat <= refEndBeat; beat += 1.0) {
+            int x = static_cast<int>(std::round(beat * currentZoom)) + leftPadding - scrollOffset;
+
+            double barRemainder = std::fmod(beat, barLengthBeats);
+            bool isBarLine = barRemainder < 0.001;
+
+            if (isBarLine) {
+                g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).brighter(0.4f));
+                g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                           static_cast<float>(x), static_cast<float>(area.getBottom()), 1.5f);
+            } else {
+                g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).brighter(0.2f));
+                g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                           static_cast<float>(x), static_cast<float>(area.getBottom()), 1.0f);
+            }
+        }
+    }
+}
+
+void GridOverlayComponent::drawBeatOverlay(juce::Graphics& g, juce::Rectangle<int> area) {
+    // Only draw beat overlay in seconds mode (bars/beats mode handles this in drawBarsBeatsGrid)
+    if (displayMode == TimeDisplayMode::BarsBeats) {
+        return;
+    }
+
+    // Draw beat subdivisions using actual tempo
+    g.setColour(DarkTheme::getColour(DarkTheme::GRID_LINE).withAlpha(0.5f));
+
+    // currentZoom is ppb - one beat = currentZoom pixels
+    const int beatPixelSpacing = static_cast<int>(currentZoom);
+
+    // Only draw beat grid if it's not too dense
+    double totalTimelineBeats = timelineLength * tempoBPM / 60.0;
+    if (beatPixelSpacing >= 10) {
+        double firstVisBeat =
+            static_cast<double>(area.getX() - leftPadding + scrollOffset) / currentZoom;
+        double lastVisBeat =
+            static_cast<double>(area.getRight() - leftPadding + scrollOffset) / currentZoom;
+        double beatStart = juce::jmax(0.0, std::floor(firstVisBeat));
+        double beatEnd = juce::jmin(std::ceil(lastVisBeat) + 1.0, totalTimelineBeats);
+        for (double beat = beatStart; beat <= beatEnd; beat += 1.0) {
+            int x = static_cast<int>(std::round(beat * currentZoom)) + leftPadding - scrollOffset;
+            g.drawLine(static_cast<float>(x), static_cast<float>(area.getY()),
+                       static_cast<float>(x), static_cast<float>(area.getBottom()), 0.5f);
+        }
+    }
+}
+
+}  // namespace magda

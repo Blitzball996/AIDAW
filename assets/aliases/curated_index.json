@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "_comment": "MAGDA-internal plugin aliases ship in code (see InternalPluginAliases.cpp). This index lists JSON-based curated packs for third-party plugins.",
+  "plugins": []
+}

@@ -1,0 +1,244 @@
+#pragma once
+
+#include <juce_core/juce_core.h>
+
+#include <map>
+#include <string>
+#include <vector>
+
+#include "../daw/core/ClipTypes.hpp"
+#include "../daw/core/TrackTypes.hpp"
+
+namespace magda {
+class MagdaApi;
+}
+
+namespace magda::dsl {
+
+// ============================================================================
+// Token Types
+// ============================================================================
+enum class TokenType {
+    IDENTIFIER,      // track, filter, clip, notes, etc.
+    STRING,          // "Serum", "Bass"
+    NUMBER,          // 3, 4.5, -6.0
+    LPAREN,          // (
+    RPAREN,          // )
+    LBRACKET,        // [
+    RBRACKET,        // ]
+    DOT,             // .
+    COMMA,           // ,
+    EQUALS,          // =
+    EQUALS_EQUALS,   // ==
+    NOT_EQUALS,      // !=
+    GREATER,         // >
+    GREATER_EQUALS,  // >=
+    LESS,            // <
+    LESS_EQUALS,     // <=
+    SEMICOLON,       // ;
+    AT,              // @
+    END_OF_INPUT,
+    ERROR
+};
+
+struct Token {
+    TokenType type;
+    std::string value;
+    int line;
+    int col;
+
+    Token() : type(TokenType::END_OF_INPUT), line(0), col(0) {}
+    Token(TokenType t, const std::string& v, int l = 0, int c = 0)
+        : type(t), value(v), line(l), col(c) {}
+
+    bool is(TokenType t) const {
+        return type == t;
+    }
+    bool is(const char* id) const {
+        return type == TokenType::IDENTIFIER && value == id;
+    }
+};
+
+// ============================================================================
+// Tokenizer
+// ============================================================================
+class Tokenizer {
+  public:
+    explicit Tokenizer(const char* input);
+
+    struct Position {
+        const char* pos;
+        int line, col;
+        Token peeked;
+        bool hasPeeked;
+    };
+
+    Token next();
+    Token peek();
+    bool hasMore() const;
+    bool expect(TokenType type);
+    bool expect(const char* identifier);
+    Position savePosition() const;
+    void restorePosition(const Position& p);
+
+  private:
+    void skipWhitespace();
+    void skipComment();
+    Token readIdentifier();
+    Token readString();
+    Token readNumber();
+
+    const char* input_;
+    const char* pos_;
+    int line_;
+    int col_;
+    Token peeked_;
+    bool hasPeeked_;
+};
+
+// ============================================================================
+// Parameter Map
+// ============================================================================
+class Params {
+  public:
+    void set(const std::string& key, const std::string& value);
+    bool has(const std::string& key) const;
+    std::string get(const std::string& key, const std::string& def = "") const;
+    int getInt(const std::string& key, int def = 0) const;
+    double getFloat(const std::string& key, double def = 0.0) const;
+    bool getBool(const std::string& key, bool def = false) const;
+    void clear() {
+        params_.clear();
+    }
+
+  private:
+    std::map<std::string, std::string> params_;
+};
+
+// ============================================================================
+// Interpreter Context
+// ============================================================================
+struct InterpreterContext {
+    int currentTrackId = -1;
+    int currentClipId = -1;
+
+    // For filter operations
+    std::vector<int> filteredTrackIds;
+    bool inFilterContext = false;
+
+    // Error handling
+    juce::String error;
+    bool hasError = false;
+
+    // Results log (human-readable)
+    juce::StringArray results;
+
+    void setError(const juce::String& msg) {
+        error = msg;
+        hasError = true;
+    }
+
+    void addResult(const juce::String& msg) {
+        results.add(msg);
+    }
+};
+
+// ============================================================================
+// DSL Interpreter
+// ============================================================================
+class Interpreter {
+  public:
+    explicit Interpreter(MagdaApi& api);
+
+    /**
+     * @brief Execute DSL code against the MagdaApi facade.
+     * @return true on success, false on error (check getError())
+     */
+    bool execute(const char* dslCode);
+
+    const char* getError() const {
+        return ctx_.error.toRawUTF8();
+    }
+
+    /**
+     * @brief Get human-readable results of the last execution
+     */
+    juce::String getResults() const {
+        return ctx_.results.joinIntoString("\n");
+    }
+
+    /** ID of the clip last created or referenced during execution. -1 if none. */
+    int getCurrentClipId() const {
+        return ctx_.currentClipId;
+    }
+
+    /**
+     * @brief Build a JSON snapshot of current project state for LLM context.
+     *
+     * Includes the user's current track/clip selection by default so the LLM
+     * can target it. Controlled by setContextEnabled(): when false, the
+     * snapshot omits selection info so the LLM has no bias signal.
+     */
+    static juce::String buildStateSnapshot(MagdaApi& api);
+
+    /** Toggle whether the state snapshot exposes the UI selection to the LLM. */
+    static void setContextEnabled(bool enabled);
+    static bool isContextEnabled();
+
+  private:
+    // Statement parsing
+    bool parseStatement(Tokenizer& tok);
+    bool parseTrackStatement(Tokenizer& tok);
+    bool parseFilterStatement(Tokenizer& tok);
+
+    // Chain method parsing
+    bool parseMethodChain(Tokenizer& tok);
+    bool executeNewClip(const Params& params);
+    bool executeSetTrack(const Params& params);
+    bool executeDelete();
+    bool executeDeleteClip(const Params& params);
+    bool executeAddFx(const Params& params);
+    bool executeRenameClip(const Params& params);
+    bool executeSelect();
+    bool executeForEach(Tokenizer& tok);
+    bool executeSelectClips(Tokenizer& tok);
+    bool executeSelectNotes(Tokenizer& tok);
+    bool executeAddNote(const Params& params);
+    bool executeAddChord(const Params& params);
+    bool executeAddArpeggio(const Params& params);
+    bool executeDeleteNotes();
+    bool executeTranspose(const Params& params);
+    bool executeSetPitch(const Params& params);
+    bool executeSetVelocity(const Params& params);
+    bool executeQuantize(const Params& params);
+    bool executeResizeNotes(const Params& params);
+    bool resolveChordNotes(const Params& params, std::vector<int>& outNotes);
+    static int parseNoteName(const std::string& name);
+    ClipId getSelectedClipId() const;
+    bool ensureNoteSelection();
+
+    // Groove commands
+    bool parseGrooveStatement(Tokenizer& tok);
+    bool executeGrooveNew(const Params& params);
+    bool executeGrooveExtract(const Params& params);
+    bool executeGrooveSet(const Params& params);
+    bool executeGrooveList();
+
+    // Parameter parsing
+    bool parseParams(Tokenizer& tok, Params& outParams);
+    bool parseValue(Tokenizer& tok, std::string& outValue);
+    bool evaluateFunction(const std::string& name, Tokenizer& tok, std::string& outValue);
+
+    // Helpers
+    static TrackType parseTrackType(const Params& params);
+    int findTrackByName(const juce::String& name) const;
+
+    // Time conversion
+    double barsToTime(double bar) const;
+    double barsToBeats(double bars) const;
+
+    MagdaApi& api_;
+    InterpreterContext ctx_;
+};
+
+}  // namespace magda::dsl

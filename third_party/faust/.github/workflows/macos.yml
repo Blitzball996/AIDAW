@@ -1,0 +1,21 @@
+name: MacOS
+
+on:
+  push:
+    branches: 
+        - '*'
+  pull_request:
+    branches: [ master-dev ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.repository_owner == 'grame-cncm' || github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Build Faust
+      run: make

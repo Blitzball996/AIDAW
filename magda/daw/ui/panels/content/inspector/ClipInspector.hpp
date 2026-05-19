@@ -1,0 +1,228 @@
+#pragma once
+
+#include <unordered_set>
+
+#include "../../common/BarsBeatsTicksLabel.hpp"
+#include "../../common/DraggableValueLabel.hpp"
+#include "../../common/SvgButton.hpp"
+#include "../../common/TextSlider.hpp"
+#include "BaseInspector.hpp"
+#include "clip/sections/ClipFadesSection.hpp"
+#include "core/ClipManager.hpp"
+
+namespace magda::daw::ui {
+
+/**
+ * @brief Inspector for clip properties
+ *
+ * Displays and edits comprehensive clip properties:
+ * - Position (start, end, length)
+ * - Source/loop controls (toggle, start, end, offset/phase)
+ * - Warp/auto-tempo/stretch settings
+ * - Pitch (auto-pitch, transpose)
+ * - Per-clip mix (volume, pan, gain)
+ * - Fades (in/out with type/behavior controls)
+ * - Playback (reverse, channels)
+ * - Session launch settings (mode, quantize)
+ */
+class ClipInspector : public BaseInspector, public magda::ClipManagerListener {
+  public:
+    ClipInspector();
+    ~ClipInspector() override;
+
+    void onActivated() override;
+    void onDeactivated() override;
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+    /**
+     * @brief Set the currently selected clips (batch)
+     * @param clipIds Set of clip IDs to inspect
+     */
+    void setSelectedClips(const std::unordered_set<magda::ClipId>& clipIds);
+
+    /**
+     * @brief Set the currently selected clip (convenience wrapper)
+     * @param clipId The clip to inspect (INVALID_CLIP_ID for none)
+     */
+    void setSelectedClip(magda::ClipId clipId);
+
+    // ClipManagerListener interface
+    void clipsChanged() override;
+    void clipPropertyChanged(magda::ClipId clipId) override;
+    void clipSelectionChanged(magda::ClipId clipId) override;
+
+  private:
+    // Initialization helpers (split from constructor for code size)
+    void initClipPropertiesSection();
+    void initSessionLaunchSection();
+    void initPitchSection();
+    void initGrooveSection();
+    void initMixSection();
+    void initPlaybackSection();
+    void initFadesSection();
+    void initChannelsSection();
+    void initViewport();
+    void updateAudioSourceValueDisplays(const magda::ClipInfo& clip);
+
+    // Current selection (supports single and multi-clip)
+    std::unordered_set<magda::ClipId> selectedClipIds_;
+
+    /** @brief Returns the primary clip ID (first in set) or INVALID_CLIP_ID if empty */
+    magda::ClipId primaryClipId() const {
+        return selectedClipIds_.empty() ? magda::INVALID_CLIP_ID : *selectedClipIds_.begin();
+    }
+
+    // Multi-selection count label
+    juce::Label clipCountLabel_;
+
+    // Clip name, colour swatch, and file info
+    juce::Label clipNameLabel_;
+    juce::Label clipNameValue_;
+    std::unique_ptr<juce::Component> colourSwatch_;
+    juce::Label clipFilePathLabel_;
+    std::unique_ptr<magda::SvgButton> clipTypeIcon_;
+    std::unique_ptr<magda::SvgButton> clipViewIcon_;
+
+    // Position section
+    juce::Label playbackColumnLabel_;
+    juce::Label loopColumnLabel_;
+    std::unique_ptr<magda::SvgButton> clipPositionIcon_;
+    juce::Label clipStartLabel_;
+    std::unique_ptr<magda::BarsBeatsTicksLabel> clipStartValue_;
+    juce::Label clipEndLabel_;
+    std::unique_ptr<magda::BarsBeatsTicksLabel> clipEndValue_;
+    juce::Label clipLengthLabel_;
+    std::unique_ptr<magda::BarsBeatsTicksLabel> clipLengthValue_;
+
+    // Loop section
+    std::unique_ptr<magda::SvgButton> clipLoopToggle_;
+    juce::Label clipLoopStartLabel_;
+    std::unique_ptr<magda::BarsBeatsTicksLabel> clipLoopStartValue_;
+    juce::Label clipLoopEndLabel_;
+    std::unique_ptr<magda::BarsBeatsTicksLabel> clipLoopEndValue_;
+    juce::Label clipLoopPhaseLabel_;
+    std::unique_ptr<magda::BarsBeatsTicksLabel> clipLoopPhaseValue_;
+
+    // Audio clip properties toggle (collapsible)
+    bool audioPropsCollapsed_ = false;
+    juce::TextButton audioPropsCollapseToggle_;
+    juce::Label audioPropsLabel_;
+
+    // Warp/tempo section
+    juce::TextButton clipWarpToggle_;
+    juce::TextButton clipAutoTempoToggle_;
+    std::unique_ptr<magda::DraggableValueLabel> clipStretchValue_;
+    juce::ComboBox stretchModeCombo_;
+    juce::Label clipBpmValue_;
+    juce::Label clipBpmUnitLabel_;
+    std::unique_ptr<magda::DraggableValueLabel> clipBeatsLengthValue_;
+    juce::Label clipBeatsUnitLabel_;
+
+    // Pitch section (audio + MIDI)
+    juce::Label pitchSectionLabel_;
+    juce::TextButton midiTransposeUpBtn_;
+    juce::TextButton midiTransposeDownBtn_;
+    juce::Label midiTransposeLabel_;
+    juce::TextButton autoPitchToggle_;
+    juce::TextButton analogPitchToggle_;
+    juce::ComboBox autoPitchModeCombo_;
+    std::unique_ptr<magda::DraggableValueLabel> pitchChangeValue_;
+
+    // Beat detection section
+    juce::Label beatDetectionSectionLabel_;
+    juce::TextButton autoDetectBeatsToggle_;
+    std::unique_ptr<magda::DraggableValueLabel> beatSensitivityValue_;
+
+    // Transient detection section
+    juce::Label transientSectionLabel_;
+    juce::Label transientSensitivityLabel_;
+    std::unique_ptr<magda::DraggableValueLabel> transientSensitivityValue_;
+
+    // Groove/Shuffle/Swing (MIDI clips)
+    juce::Label grooveSectionLabel_;
+    juce::TextButton grooveTemplateButton_;
+    juce::Label grooveStrengthLabel_;
+    std::unique_ptr<magda::DraggableValueLabel> grooveStrengthValue_;
+
+    // Two-column groove template picker popup
+    class GroovePickerPopup;
+    void showGroovePicker();
+    void onGrooveTemplateSelected(const juce::String& templateName);
+
+    // Playback
+    juce::TextButton reverseToggle_;
+
+    // Per-clip mix section
+    juce::Label clipMixSectionLabel_;
+    std::unique_ptr<magda::DraggableValueLabel> clipVolumeValue_;
+    std::unique_ptr<magda::DraggableValueLabel> clipPanValue_;
+    std::unique_ptr<magda::DraggableValueLabel> clipGainValue_;
+
+    // Fades section
+    std::unique_ptr<ClipFadesSection> fadesSection_;
+
+    // Channels section
+    juce::Label channelsSectionLabel_;
+    juce::TextButton leftChannelToggle_;
+    juce::TextButton rightChannelToggle_;
+
+    // Session clip launch properties
+    juce::Label launchModeLabel_;
+    juce::ComboBox launchModeCombo_;
+    juce::Label launchQuantizeLabel_;
+    juce::ComboBox launchQuantizeCombo_;
+    juce::Label followActionLabel_;
+    juce::ComboBox followActionCombo_;
+    juce::Label followActionDelayLabel_;
+    TextSlider followActionDelaySlider_;
+    juce::Label followActionLoopCountLabel_;
+    TextSlider followActionLoopCountSlider_;
+    // Scrollable container for clip properties
+    juce::Viewport clipPropsViewport_;
+    class ClipPropsContainer : public juce::Component {
+      public:
+        void paint(juce::Graphics& g) override;
+        std::vector<int> separatorYPositions;
+    };
+    ClipPropsContainer clipPropsContainer_;
+
+    // Multi-selection range cache
+    struct ClipRange {
+        bool valid = false;  // True if at least one clip was processed
+        float minPitchChange = 0.0f, maxPitchChange = 0.0f;
+        float minVolumeDB = 0.0f, maxVolumeDB = 0.0f;
+        float minPan = 0.0f, maxPan = 0.0f;
+        float minGainDB = 0.0f, maxGainDB = 0.0f;
+        double minSpeedRatio = 1.0, maxSpeedRatio = 1.0;
+        double minStartSeconds = 0.0, maxStartSeconds = 0.0;
+        double minLengthSeconds = 0.0, maxLengthSeconds = 0.0;
+        double minOffsetSeconds = 0.0, maxOffsetSeconds = 0.0;
+        // Type flags
+        bool allAudio = true, allMidi = true;
+        bool allArrangement = true, allSession = true;
+    };
+    ClipRange clipRange_;
+
+    // Drag-start tracking for multi-selection delta edits
+    double multiPitchChangeDragStart_ = 0.0;
+    double multiVolumeDragStart_ = 0.0;
+    double multiPanDragStart_ = 0.0;
+    double multiGainDragStart_ = 0.0;
+    double multiSpeedRatioDragStart_ = 0.0;
+    double multiStartDragStart_ = 0.0;
+    double multiEndDragStart_ = 0.0;
+    double multiLengthDragStart_ = 0.0;
+
+    // Update methods
+    void updateFromSelectedClip();
+    void updateLoopValueDisplays(const magda::ClipInfo& clip, double projectBPM, int beatsPerBar);
+    void showClipControls(bool show);
+    void computeClipRange();
+    void refreshClipRangeDisplay();
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClipInspector)
+};
+
+}  // namespace magda::daw::ui

@@ -1,0 +1,16 @@
+[package]
+name = "faust-impulse-test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+libm = "*"
+num-traits = "*"
+default-boxed = "0.2"
+
+[features]
+default = ["default-boxed"]
+default-boxed = []
+
+[workspace]

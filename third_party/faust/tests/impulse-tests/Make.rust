@@ -1,0 +1,79 @@
+#
+# Makefile for generating ir using Rust
+#
+
+system := $(shell uname -s)
+system := $(shell echo $(system) | grep MINGW > /dev/null && echo MINGW || echo $(system))
+ifeq ($(system), MINGW)
+ FAUST ?= ../../build/bin/faust.exe
+ COMPARE := ./filesCompare.exe
+else
+ FAUST ?= ../../build/bin/faust
+ COMPARE := ./filesCompare
+endif
+MAKE ?= make
+
+outdir ?= rust
+FAUSTOPTIONS ?= -double
+CARGOOPTIONS ?= --release
+precision ?=		# filesCompare precision (empty by default)
+
+.PHONY: test
+.DELETE_ON_ERROR:
+
+dspfiles := $(wildcard dsp/*.dsp)
+listfiles = $(dspfiles:dsp/%.dsp=ir/$1/%.ir)
+
+#########################################################################
+all: filesCompare ir/$(outdir) $(call listfiles,$(outdir))
+
+#########################################################################
+# output directories
+ir/$(outdir):
+	mkdir -p ir/$(outdir)
+
+#########################################################################
+# tools
+filesCompare: 
+	$(MAKE) filesCompare
+
+#########################################################################
+# rules
+
+ir/$(outdir)/sound.ir: dsp/sound.dsp
+	$(FAUST) -lang rust $(FAUSTOPTIONS) dsp/sound.dsp -o archs/rust/src/bin/sound.rs > $@ 2>&1 || (echo "expected failure")
+	grep "ERROR : 'soundfile' primitive not yet supported for Rust" $@
+
+ir/rust/osec/bs.ir: dsp/bs.dsp
+	$(FAUST) -lang rust $(FAUSTOPTIONS) dsp/bs.dsp -o archs/rust/src/bin/bs.rs > $@ 2>&1 || (echo "expected failure")
+	grep "ERROR : accessing foreign variable 'count' is not allowed in this compilation mode" $@
+
+ir/rust/os/bs.ir: dsp/bs.dsp
+	$(FAUST) -lang rust $(FAUSTOPTIONS) dsp/bs.dsp -o archs/rust/src/bin/bs.rs > $@ 2>&1 || (echo "expected failure")
+	grep "ERROR : accessing foreign variable 'count' is not allowed in this compilation mode" $@
+
+ir/rust/ecrnt/bs.ir: dsp/bs.dsp
+	$(FAUST) -lang rust $(FAUSTOPTIONS) dsp/bs.dsp -o archs/rust/src/bin/bs.rs > $@ 2>&1 || (echo "expected failure")
+	grep "ERROR : accessing foreign variable 'count' is not allowed in this compilation mode" $@
+
+ir/rust/vec4/osc_enable.ir: dsp/osc_enable.dsp
+	$(FAUST) -lang rust $(FAUSTOPTIONS) dsp/osc_enable.dsp -o archs/rust/src/bin/osc_enable.rs > $@ 2>&1 || (echo "expected failure")
+	grep "ERROR : 'control/enable' can only be used in scalar mode" $@
+
+ir/rust/vec32/osc_enable.ir: dsp/osc_enable.dsp
+	$(FAUST) -lang rust $(FAUSTOPTIONS) dsp/osc_enable.dsp -o archs/rust/src/bin/osc_enable.rs > $@ 2>&1 || (echo "expected failure")
+	grep "ERROR : 'control/enable' can only be used in scalar mode" $@
+
+ir/rust/vec4/prefix.ir:
+	echo "todo fix bug #1071 to test dsp/prefix.dsp"
+
+ir/rust/vec32/prefix.ir:
+	echo "todo fix bug #1071 to test dsp/prefix.dsp"
+
+ir/rust/it/subcontainer1.ir:
+	echo "todo fix bug #1236 to test dsp/subcontainer1.dsp"
+
+ir/$(outdir)/%.ir: dsp/%.dsp reference/%.ir
+	$(FAUST) -lang rust $(FAUSTOPTIONS) dsp/$*.dsp -o archs/rust/src/bin/$*.rs
+	cd archs/rust/ && cargo run $(CARGOOPTIONS) --bin $* ../../$@
+	$(COMPARE) $@ reference/$(notdir $@) $(precision) || (rm -f $@; false)
