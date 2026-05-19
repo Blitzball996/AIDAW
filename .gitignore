@@ -10,3 +10,4 @@ build2/
 .vs/
 CMakeFiles/
 cmake-build-*/
+build3/

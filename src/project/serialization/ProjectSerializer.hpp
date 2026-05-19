@@ -4,8 +4,8 @@
 
 #ifdef AIDAW_HAS_DAW_ENGINE
 #include "../../core/AutomationInfo.hpp"
-#include "../../core/ClipInfo.hpp"
-#include "../../core/TrackInfo.hpp"
+#include "../../core/ClipManager.hpp"
+#include "../../core/TrackManager.hpp"
 #endif
 
 #include "../ProjectInfo.hpp"

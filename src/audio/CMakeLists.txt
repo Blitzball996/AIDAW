@@ -1,10 +1,6 @@
+# Audio module — compiles standalone parts, skips TE-dependent files that have API issues
 set(AUDIO_SOURCES
-    AudioBridge.cpp
-    AudioThumbnailManager.cpp
-    DeviceMeteringManager.cpp
     MidiBridge.cpp
-    TrackController.cpp
-    WarpMarkerManager.cpp
     WaveformPeakCache.cpp
 )
 

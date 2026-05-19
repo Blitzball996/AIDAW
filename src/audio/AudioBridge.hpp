@@ -24,16 +24,6 @@ namespace te = tracktion;
 class Engine;
 
 using DeviceId = int;
-using ClipId = int;
-constexpr DeviceId INVALID_DEVICE_ID = -1;
-
-/**
- * @brief Warp marker information for UI display
- */
-struct WarpMarkerInfo {
-    double sourceTime;
-    double warpTime;
-};
 
 /**
  * @brief Metering data for a single track
