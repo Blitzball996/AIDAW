@@ -1,6 +1,10 @@
 # Source modules
 add_subdirectory(app)
 add_subdirectory(core)
+add_subdirectory(api)
+add_subdirectory(audio)
+add_subdirectory(music)
+add_subdirectory(project)
 add_subdirectory(modes)
 add_subdirectory(ai)
 add_subdirectory(ui)
@@ -18,6 +22,10 @@ target_sources(AIDAW PRIVATE main.cpp)
 target_link_libraries(AIDAW PRIVATE
     aidaw_app
     aidaw_core
+    aidaw_api
+    aidaw_audio
+    aidaw_music
+    aidaw_project
     aidaw_modes
     aidaw_ai
     aidaw_ui

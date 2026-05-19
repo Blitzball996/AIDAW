@@ -51,3 +51,8 @@ if(TARGET tracktion_engine)
     target_link_libraries(aidaw_audio PUBLIC tracktion_engine)
     target_compile_definitions(aidaw_audio PUBLIC AIDAW_HAS_TRACKTION=1)
 endif()
+
+# Link core module for shared types and engine access
+if(TARGET aidaw_core)
+    target_link_libraries(aidaw_audio PUBLIC aidaw_core)
+endif()

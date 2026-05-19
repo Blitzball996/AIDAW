@@ -3,6 +3,11 @@ add_library(aidaw_ui STATIC
     pro/ProMainView.cpp
     ai/AiMainView.cpp
     ai/ChatPanel.cpp
+    panels/TransportPanel.cpp
+    views/ArrangementView.cpp
+    views/MixerView.cpp
+    views/SessionView.cpp
+    themes/DarkTheme.cpp
 )
 
 target_include_directories(aidaw_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
