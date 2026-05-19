@@ -58,7 +58,7 @@ if(MSVC)
     # /Zi when the build runs with -j >1). Added via add_compile_options so it
     # composes with CMake's default MSVC init flags (/DWIN32 /_WINDOWS /EHsc etc.)
     # instead of replacing them like a top-level -DCMAKE_CXX_FLAGS would.
-    add_compile_options(/FS)
+    add_compile_options(/FS /utf-8 /Zc:char8_t-)
     # /OPT:REF,ICF preserve release dead-stripping; /Zi + /DEBUG applied per-target (see magda/daw/CMakeLists.txt)
     string(APPEND CMAKE_EXE_LINKER_FLAGS_RELEASE " /OPT:REF /OPT:ICF")
 else()

@@ -122,7 +122,7 @@ class ChainTreeItemBase : public juce::TreeViewItem {
 class TrackTreeItem : public ChainTreeItemBase {
   public:
     explicit TrackTreeItem(const juce::String& trackName, TrackId trackId)
-        : ChainTreeItemBase(trackName, juce::String::fromUTF8("🎚️")), trackId_(trackId) {}
+        : ChainTreeItemBase(trackName, juce::String("*")), trackId_(trackId) {}
 
     bool mightContainSubItems() override {
         return true;

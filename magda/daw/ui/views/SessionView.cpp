@@ -1568,8 +1568,8 @@ void SessionView::trackPropertyChanged(int trackId) {
         juce::String headerText = track->name;
         if (track->isGroup()) {
             bool collapsed = track->isCollapsedIn(currentViewMode_);
-            headerText = (collapsed ? juce::String(juce::CharPointer_UTF8("\xe2\x96\xb6 "))
-                                    : juce::String(juce::CharPointer_UTF8("\xe2\x96\xbc "))) +
+            headerText = (collapsed ? juce::String("*")
+                                    : juce::String("*")) +
                          track->name;
         }
         trackHeaders[index]->setButtonText(headerText);
@@ -1731,8 +1731,8 @@ void SessionView::rebuildTracks() {
         juce::String headerText = track->name;
         if (track->isGroup()) {
             bool collapsed = track->isCollapsedIn(currentViewMode_);
-            headerText = (collapsed ? juce::String(juce::CharPointer_UTF8("\xe2\x96\xb6 "))   // ▶
-                                    : juce::String(juce::CharPointer_UTF8("\xe2\x96\xbc ")))  // ▼
+            headerText = (collapsed ? juce::String("*")   // ▶
+                                    : juce::String("*"))  // ▼
                          + track->name;
         }
         header->setColour(juce::TextButton::buttonColourId, track->colour.withAlpha(0.5f));

@@ -128,7 +128,7 @@ class TrackManagerDialog::ContentComponent : public juce::Component,
 
             // Add group indicator
             if (track->isGroup()) {
-                displayName = juce::String(juce::CharPointer_UTF8("\xe2\x96\xbc ")) + displayName;
+                displayName = juce::String("*") + displayName;
             }
 
             g.drawText(displayName, indent + 5, 0, width - indent - 10, height,

@@ -328,7 +328,7 @@ void AIPanelComponent::onGenerationFinished(juce::String status) {
     }
     output_.setColour(juce::TextEditor::textColourId,
                       DarkTheme::getColour(DarkTheme::TEXT_PRIMARY));
-    output_.insertTextAtCaret(juce::String(juce::CharPointer_UTF8("\xe2\x86\x92 ")) + status);
+    output_.insertTextAtCaret(juce::String("*") + status);
 
     // Remind the user the preset is a starting point — only on a successful
     // apply (status messages from cancel / error / timeout shouldn't suggest

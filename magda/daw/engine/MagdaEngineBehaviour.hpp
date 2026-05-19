@@ -93,8 +93,8 @@ class MagdaEngineBehaviour : public tracktion::EngineBehaviour {
             return new AudioSidechainMonitorPlugin(info);
         }
         if (type == daw::audio::FaustPlugin::xmlTypeName) {
-            DBG("MagdaEngineBehaviour::createCustomPlugin - creating FaustPlugin");
-            return new daw::audio::FaustPlugin(info);
+            // FaustPlugin excluded from build — skip creation
+            return nullptr;
         }
         // Compiled-Faust plugins go through the registry; one factory per
         // device lives in its own .cpp (see CompiledPluginRegistry.hpp).

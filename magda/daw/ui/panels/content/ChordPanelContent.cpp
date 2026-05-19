@@ -93,7 +93,7 @@ ScaleChordsPopup::ScaleChordsPopup(const magda::music::ScaleWithChords& scale) :
                 degree = degree.toLowerCase();
             }
             if (scale_.chords[i].quality == magda::music::ChordQuality::Diminished)
-                degree += juce::String(juce::CharPointer_UTF8("\xc2\xb0"));  // degree symbol °
+                degree += juce::String("*");  // degree symbol °
             block->setDegreeLabel(degree);
         }
 

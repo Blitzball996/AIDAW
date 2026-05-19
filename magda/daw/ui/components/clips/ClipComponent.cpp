@@ -719,7 +719,7 @@ void ClipComponent::paintClipHeader(juce::Graphics& g, const ClipInfo& clip,
         auto musicalArea = headerArea.removeFromRight(14).reduced(2);
         g.setColour(headerForeground);
         g.setFont(FontManager::getInstance().getUIFont(12.0f));
-        g.drawText(juce::CharPointer_UTF8("\xe2\x99\xa9"), musicalArea,
+        g.drawText(juce::CharPointer_UTF8(">"), musicalArea,
                    juce::Justification::centred, false);
     }
 

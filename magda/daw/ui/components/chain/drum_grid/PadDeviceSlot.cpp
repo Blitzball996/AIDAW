@@ -22,7 +22,7 @@ PadDeviceSlot::PadDeviceSlot() {
     nameLabel_.addMouseListener(this, false);
     addAndMakeVisible(nameLabel_);
 
-    deleteButton_.setButtonText(juce::CharPointer_UTF8("\xc3\x97"));  // multiplication sign
+    deleteButton_.setButtonText(juce::CharPointer_UTF8(">"));  // multiplication sign
     auto deleteColour = DarkTheme::getColour(DarkTheme::ACCENT_PURPLE)
                             .interpolatedWith(DarkTheme::getColour(DarkTheme::STATUS_ERROR), 0.5f)
                             .darker(0.2f);
