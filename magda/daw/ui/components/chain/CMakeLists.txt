@@ -17,7 +17,7 @@ target_sources(magda_daw_app PRIVATE
     slot/DevicePresetMenu.cpp
     slot/DeviceSlotTraits.cpp
     slot/StepSequencerClipExport.cpp
-    drum_grid/DeviceSlotDrumGridBridgeStubs.cpp
+    drum_grid/DeviceSlotDrumGridBridge.cpp
     drum_grid/DrumGridUI.cpp
     drum_grid/PadChainPanel.cpp
     drum_grid/PadDeviceSlot.cpp

@@ -270,7 +270,7 @@ target_sources(magda_daw PRIVATE
     AudioThumbnailManager.cpp
     WaveformPeakCache.cpp
     DeviceMeteringManager.cpp
-    # FaustResources.cpp
+    FaustResources.cpp
     processors/base/DeviceProcessor.cpp
     processors/base/DeviceProcessor.hpp
     processors/base/AutomatablePluginProcessor.cpp
@@ -285,7 +285,7 @@ target_sources(magda_daw PRIVATE
     processors/internal/NativeDeviceProcessors.hpp
     processors/te/TeProcessorWrappers.cpp
     processors/te/TeProcessorWrappers.hpp
-    # processors/CompiledFaustProcessor.cpp
+    processors/CompiledFaustProcessor.cpp
     processors/CompiledFaustProcessor.hpp
     processors/DeviceProcessor.hpp
     processors/DeviceProcessorFactory.cpp
@@ -341,10 +341,10 @@ target_sources(magda_daw PRIVATE
     plugins/ArpeggiatorPlugin.cpp
     plugins/InstrumentMeterTapPlugin.cpp
     plugins/MidiDevicePlugin.cpp
-    # plugins/FaustPlugin.cpp  # excluded - requires magda TE fork
+    plugins/FaustPlugin.cpp
     plugins/FaustMetadataParser.cpp
-    # plugins/FaustParamPool.cpp
-    # plugins/FaustParamInfo.cpp
+    plugins/FaustParamPool.cpp
+    plugins/FaustParamInfo.cpp
     transport/StepClock.cpp
     plugins/StepSequencerPlugin.cpp
     # Controller routing (issue #1050 -- Phase C)

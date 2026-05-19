@@ -483,7 +483,7 @@ target_include_directories(magda_plugin_scanner
 # /Zi is applied here (not globally) so llama.cpp and other third-party targets
 # are not affected and don't hit parallel PDB write conflicts when using sccache.
 if(MSVC)
-    target_compile_options(magda_daw_app PRIVATE $<$<CONFIG:Release>:/Zi>)
+    target_compile_options(magda_daw_app PRIVATE $<$<CONFIG:Release>:/Zi> /permissive-)
     target_link_options(magda_daw_app PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
 endif()
 

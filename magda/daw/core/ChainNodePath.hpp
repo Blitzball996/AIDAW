@@ -48,14 +48,16 @@ enum class ChainNodeType {
  * The last step determines what's selected.
  */
 struct ChainNodePath {
-    int trackId = -1;
+    int trackId;
     std::vector<ChainPathStep> steps;
 
     // Legacy: top-level device (not in a rack/chain)
-    int topLevelDeviceId = -1;
+    int topLevelDeviceId;
 
     // Explicit flag for track-level paths (only set by trackLevel() factory)
-    bool isTrackLevel = false;
+    bool isTrackLevel;
+
+    ChainNodePath() : trackId(-1), topLevelDeviceId(-1), isTrackLevel(false) {}
 
     ChainNodeType getType() const {
         if (trackId == INVALID_TRACK_ID)
