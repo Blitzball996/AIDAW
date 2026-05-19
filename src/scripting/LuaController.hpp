@@ -5,27 +5,12 @@
 
 #include <memory>
 
-// TODO: Port MidiBridge from magda-core or provide AIDAW equivalent.
-// For now, declare a minimal RawMidiListener interface stub.
+#include "magda/daw/audio/MidiBridge.hpp"
 
 namespace aidaw {
 
-// Stub: replace with actual AIDAW API class once ported.
-class AidawApi;
-
-// Stub: minimal MidiBridge interface for compilation.
-// Replace with actual AIDAW MIDI bridge once available.
+class MagdaApi;
 class MidiBridge;
-
-/**
- * Listener interface for raw MIDI events from the bridge.
- */
-class RawMidiListener {
-  public:
-    virtual ~RawMidiListener() = default;
-    virtual void onRawMidi(const juce::String& deviceId, const juce::String& deviceName,
-                           const juce::MidiMessage& msg) = 0;
-};
 
 namespace scripting {
 
@@ -35,25 +20,25 @@ class LuaRuntime;
  * Bridges raw MIDI from MidiBridge to a user Lua script's `on_midi(event)`.
  *
  * Lifecycle:
- *   ctor -> registers as RawMidiListener.
- *   loadScript(file) -> creates a fresh LuaRuntime, registers the aidaw.*
- *                       bindings on it, and evals the script.
- *   onRawMidi (MIDI thread) -> captures a POD copy of the event, posts to
+ *   ctor → registers as MidiBridge::RawMidiListener.
+ *   loadScript(file) → creates a fresh LuaRuntime, registers the magda.*
+ *                      bindings on it, and evals the script.
+ *   onRawMidi (MIDI thread) → captures a POD copy of the event, posts to
  *                              the message thread via juce::MessageManager
  *                              ::callAsync. WeakReference guards against
  *                              the controller being destroyed before the
  *                              async fires.
- *   message thread -> builds a Lua event table, calls `on_midi(e)` if the
- *                     script defined it. Errors are logged via juce::Logger;
- *                     the runtime stays alive so subsequent events keep
- *                     dispatching.
- *   dtor -> unregisters from MidiBridge and tears down the runtime.
+ *   message thread → builds a Lua event table, calls `on_midi(e)` if the
+ *                    script defined it. Errors are logged via juce::Logger;
+ *                    the runtime stays alive so subsequent events keep
+ *                    dispatching.
+ *   dtor → unregisters from MidiBridge and tears down the runtime.
  *
  * One script at a time in v1. Reload to switch.
  */
 class LuaController : public RawMidiListener {
   public:
-    explicit LuaController(AidawApi& api);
+    explicit LuaController(MagdaApi& api);
     ~LuaController() override;
 
     LuaController(const LuaController&) = delete;
@@ -66,7 +51,7 @@ class LuaController : public RawMidiListener {
     /** Unregister from any attached bridge. Idempotent. */
     void detach();
 
-    /** Read `file`, create a runtime, register aidaw.* bindings, eval the
+    /** Read `file`, create a runtime, register magda.* bindings, eval the
      *  script. Replaces any currently-loaded script. Returns true on success;
      *  on failure the previous script is also unloaded and lastError() carries
      *  the message. */
@@ -89,7 +74,7 @@ class LuaController : public RawMidiListener {
                    const juce::MidiMessage& msg) override;
 
     /** Test seam: synchronously dispatch an event without going through the
-     *  MIDI thread -> message thread bridge. */
+     *  MIDI thread → message thread bridge. */
     void dispatchEventForTest(const juce::String& deviceName, const juce::MidiMessage& msg);
 
     /** Test seam: synchronously fire one on_tick(dt) call. Production code
@@ -108,7 +93,7 @@ class LuaController : public RawMidiListener {
 
     class TickTimer;
 
-    AidawApi& api_;
+    MagdaApi& api_;
     MidiBridge* bridge_ = nullptr;  // non-owning; nullptr until attach() is called
     std::unique_ptr<LuaRuntime> rt_;
     juce::String currentScriptName_;

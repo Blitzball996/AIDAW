@@ -16,7 +16,8 @@ namespace aidaw::scripting {
  * redirects print() to juce::Logger; destructor closes the state.
  *
  * Threading: not thread-safe. A LuaRuntime instance must be used from a single
- * thread (typically the JUCE message thread).
+ * thread (typically the JUCE message thread). #592 will rely on this when
+ * draining MIDI events on the message thread before calling into Lua.
  */
 class LuaRuntime {
   public:
@@ -51,7 +52,7 @@ class LuaRuntime {
         return lastError_;
     }
 
-    /** Raw VM access — for binding code.
+    /** Raw VM access — for binding code in #30 and beyond.
      *  Returns nullptr only if this instance has been moved-from. */
     lua_State* state() noexcept {
         return L_;

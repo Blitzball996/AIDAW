@@ -1,9 +1,13 @@
-# AIDAW Project Management Module
-# Header-only for now — ProjectManager.cpp needs DAW engine singletons not yet wired.
+# Project save/load and serialization helpers.
 
-add_library(aidaw_project INTERFACE)
-
-target_include_directories(aidaw_project
-    INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}
+target_sources(magda_daw PRIVATE
+    ProjectManager.cpp
+    serialization/ProjectSerializer.cpp
+    serialization/TrackSerializer.cpp
+    serialization/ClipSerializer.cpp
+    serialization/AutomationModSerializer.cpp
+    # Headers (listed for IDE visibility)
+    ProjectInfo.hpp
+    ProjectManager.hpp
+    serialization/ProjectSerializer.hpp
 )

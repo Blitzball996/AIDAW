@@ -1,6 +1,6 @@
-#include "LuaRuntime.hpp"
+#include "magda/scripting/LuaRuntime.hpp"
 
-#include "LuaSandbox.hpp"
+#include "magda/scripting/LuaSandbox.hpp"
 
 extern "C" {
 #include <lauxlib.h>
@@ -16,22 +16,26 @@ namespace aidaw::scripting {
 namespace {
 
 // Replacement for Lua's default print(): forwards to juce::Logger.
+// Mirrors the formatting of the stock implementation in lbaselib.c — coerces
+// each argument with tostring(), separates with tabs, and emits a single line.
 int luaPrintToLogger(lua_State* L) {
     int n = lua_gettop(L);
     juce::String line;
     for (int i = 1; i <= n; ++i) {
         size_t len = 0;
-        const char* s = luaL_tolstring(L, i, &len);
+        const char* s = luaL_tolstring(L, i, &len);  // pushes converted string
         if (i > 1)
             line << '\t';
         line << juce::String::fromUTF8(s, static_cast<int>(len));
-        lua_pop(L, 1);
+        lua_pop(L, 1);  // pop converted string
     }
     juce::Logger::writeToLog(line);
     return 0;
 }
 
-// Message handler for lua_pcall — appends a traceback.
+// Message handler installed for lua_pcall — appends a traceback so error
+// messages report the exact line in user code instead of just the bottom of
+// the call stack.
 int errorMessageHandler(lua_State* L) {
     const char* msg = lua_tostring(L, 1);
     if (msg == nullptr) {
@@ -44,11 +48,12 @@ int errorMessageHandler(lua_State* L) {
 }
 
 bool runChunk(lua_State* L, juce::String& errorOut) {
-    int base = lua_gettop(L);
+    // Stack: [ ..., chunk ]
+    int base = lua_gettop(L);  // index of the chunk function
     lua_pushcfunction(L, errorMessageHandler);
-    lua_insert(L, base);
-    int rc = lua_pcall(L, 0, 0, base);
-    lua_remove(L, base);
+    lua_insert(L, base);                // move handler below the chunk
+    int rc = lua_pcall(L, 0, 0, base);  // 0 args, 0 results, handler at `base`
+    lua_remove(L, base);                // remove handler
     if (rc != LUA_OK) {
         size_t len = 0;
         const char* msg = lua_tolstring(L, -1, &len);
@@ -64,6 +69,8 @@ bool runChunk(lua_State* L, juce::String& errorOut) {
 
 LuaRuntime::LuaRuntime() : L_(luaL_newstate()) {
     if (L_ == nullptr) {
+        // Out of memory at startup — extremely unlikely. Leave L_ null;
+        // every subsequent call short-circuits via the null check.
         lastError_ = "luaL_newstate returned null";
         return;
     }
@@ -71,6 +78,7 @@ LuaRuntime::LuaRuntime() : L_(luaL_newstate()) {
     luaL_openlibs(L_);
     applySandbox(L_);
 
+    // Replace print() with our logger-forwarding version.
     lua_pushcfunction(L_, luaPrintToLogger);
     lua_setglobal(L_, "print");
 }
@@ -129,6 +137,7 @@ std::optional<long long> LuaRuntime::evalToInt(const juce::String& chunk) {
     if (L_ == nullptr)
         return std::nullopt;
 
+    // Wrap as `return (chunk)` so the value lands on the stack.
     juce::String wrapped = "return (" + chunk + ")";
     lastError_ = {};
 

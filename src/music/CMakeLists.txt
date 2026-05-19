@@ -1,26 +1,6 @@
-# AIDAW Music Theory Module
-# Standalone music theory: chord detection, scale detection, chord suggestions.
+# Music-theory helpers: chord detection and suggestion engines.
 
-add_library(aidaw_music STATIC
+target_sources(magda_daw PRIVATE
     ChordEngine.cpp
     ChordSuggestionEngine.cpp
 )
-
-target_include_directories(aidaw_music
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_link_libraries(aidaw_music
-    PUBLIC
-        juce::juce_core
-)
-
-# Header-only components (no .cpp needed):
-#   ChordEnums.hpp
-#   ChordTypes.hpp
-#   ChordCache.hpp
-#   LRUCache.hpp
-#   Scales.hpp
-#   ScaleDetector.hpp
-#   KeyModeHistogram.hpp

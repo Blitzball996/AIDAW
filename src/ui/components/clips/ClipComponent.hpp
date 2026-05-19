@@ -1,28 +1,224 @@
 #pragma once
 
-#include <juce_gui_extra/juce_gui_extra.h>
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <limits>
+
+#include "core/ClipInfo.hpp"
+#include "core/ClipManager.hpp"
+#include "core/ClipTypes.hpp"
+#include "utils/DragThrottle.hpp"
 
 namespace aidaw {
 
-class ClipComponent : public juce::Component {
-public:
-    ClipComponent(const juce::String& name, juce::Colour colour)
-        : clipName(name), clipColour(colour) {}
+// Forward declarations
+class TrackContentPanel;
 
-    void paint(juce::Graphics& g) override {
-        auto area = getLocalBounds().reduced(1);
-        g.setColour(clipColour);
-        g.fillRoundedRectangle(area.toFloat(), 3.0f);
-        g.setColour(clipColour.brighter(0.3f));
-        g.drawRoundedRectangle(area.toFloat(), 3.0f, 1.0f);
-        g.setColour(juce::Colours::white);
-        g.setFont(11.0f);
-        g.drawText(clipName, area.reduced(4, 2), juce::Justification::topLeft);
+/**
+ * @brief Visual representation of a clip in the arrange view
+ *
+ * Handles:
+ * - Clip rendering (different styles for Audio vs MIDI)
+ * - Drag to move (horizontally and to other tracks)
+ * - Resize handles (left/right edges)
+ * - Selection
+ */
+class ClipComponent : public juce::Component, public ClipManagerListener, private juce::Timer {
+  public:
+    explicit ClipComponent(ClipId clipId, TrackContentPanel* parent);
+    ~ClipComponent() override;
+
+    ClipId getClipId() const {
+        return clipId_;
     }
 
-private:
-    juce::String clipName;
-    juce::Colour clipColour;
+    // Component overrides
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+    bool hitTest(int x, int y) override;
+
+    // Mouse handling
+    void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseEnter(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
+    void mouseDoubleClick(const juce::MouseEvent& e) override;
+
+    // Keyboard handling
+    bool keyPressed(const juce::KeyPress& key) override;
+
+    // ClipManagerListener
+    void clipsChanged() override;
+    void clipPropertyChanged(ClipId clipId) override;
+    void clipSelectionChanged(ClipId clipId) override;
+
+    // Selection state
+    bool isSelected() const {
+        return isSelected_;
+    }
+    void setSelected(bool selected);
+
+    // Marquee highlight state (visual hint during marquee drag)
+    bool isMarqueeHighlighted() const {
+        return isMarqueeHighlighted_;
+    }
+    void setMarqueeHighlighted(bool highlighted);
+
+    // Check if this clip is part of a multi-selection
+    bool isPartOfMultiSelection() const;
+
+    // Drag state (for parent to check)
+    bool isCurrentlyDragging() const {
+        return isDragging_;
+    }
+    void clearDragging() {
+        isDragging_ = false;
+    }
+
+    // Callbacks
+    std::function<void(ClipId, double)> onClipMoved;          // clipId, newStartTime
+    std::function<void(ClipId, TrackId)> onClipMovedToTrack;  // clipId, newTrackId
+    std::function<void(ClipId, double, bool)> onClipResized;  // clipId, newLength, fromStart
+    std::function<void(ClipId)> onClipSelected;
+    std::function<void(ClipId)> onClipDoubleClicked;
+    std::function<void(ClipId, double)> onClipSplit;       // clipId, splitTime (Alt+click)
+    std::function<void(ClipId)> onClipRenderRequested;     // clipId (render clip to new file)
+    std::function<void()> onRenderTimeSelectionRequested;  // render time selection
+    std::function<void(ClipId)> onBounceInPlaceRequested;  // bounce MIDI clip in place (synth only)
+    std::function<void(ClipId)>
+        onBounceToNewTrackRequested;               // bounce clip to new track (full chain)
+    std::function<double(double)> snapTimeToGrid;  // Optional grid snapping
+
+    // Real-time preview callbacks (called during drag, not just on mouseUp)
+    std::function<void(ClipId, double, double)>
+        onClipDragPreview;  // clipId, previewStartTime, previewLength
+
+  private:
+    ClipId clipId_;
+    TrackContentPanel* parentPanel_;
+    bool isSelected_ = false;
+    bool isMarqueeHighlighted_ = false;
+
+    // Interaction state
+    enum class DragMode {
+        None,
+        Move,
+        ResizeLeft,
+        ResizeRight,
+        StretchLeft,
+        StretchRight,
+        FadeIn,
+        FadeOut,
+        VolumeDrag
+    };
+    DragMode dragMode_ = DragMode::None;
+
+    // Drag state
+    juce::Point<int> dragStartPos_;
+    juce::Point<int> dragStartBoundsPos_;  // Original bounds position at drag start
+    double dragStartTime_ = 0.0;
+    double dragStartLength_ = 0.0;
+    TrackId dragStartTrackId_ = INVALID_TRACK_ID;
+
+    // Preview state during drag (visual only, not committed until mouseUp)
+    double previewStartTime_ = 0.0;
+    double previewLength_ = 0.0;
+    bool isDragging_ = false;
+    bool isCommitting_ = false;             // True during mouseUp commit phase
+    bool shouldDeselectOnMouseUp_ = false;  // Delayed deselection for multi-selection
+
+    // Audio clip drag state
+    double dragStartSpeedRatio_ = 1.0;
+    double dragStartAudioOffset_ = 0.0;
+    double dragStartFileDuration_ = 0.0;
+    ClipInfo dragStartClipSnapshot_;  // Full clip state at drag start (for undo)
+    ClipInfo resizePreviewClip_;      // Preview clip state during resize-left drag
+    std::unordered_map<ClipId, double>
+        dragStartSelectedLengths_;  // Original lengths of other selected clips
+    std::unordered_map<ClipId, ClipInfo>
+        dragStartSelectedClipSnapshots_;  // Original full state for multi-resize preview restore
+    double multiResizeMaxDelta_ =
+        std::numeric_limits<double>::max();  // Max length increase before collision
+    DragThrottle stretchThrottle_{50};
+    DragThrottle resizeThrottle_{50};
+
+    // Alt+drag duplicate state
+    bool isDuplicating_ = false;
+    ClipId duplicateClipId_ = INVALID_CLIP_ID;
+
+    // Magnetic snap threshold in pixels (higher = snappier)
+    static constexpr int SNAP_THRESHOLD_PIXELS = 15;
+
+    // Hover state for resize handles
+    bool hoverLeftEdge_ = false;
+    bool hoverRightEdge_ = false;
+
+    // Fade handle state
+    bool hoverFadeIn_ = false;
+    bool hoverFadeOut_ = false;
+    double dragStartFadeIn_ = 0.0;
+    double dragStartFadeOut_ = 0.0;
+    std::unordered_map<ClipId, ClipInfo>
+        dragStartSelectedFadeSnapshots_;  // Original state of other selected clips for fade undo
+
+    // Volume handle state
+    bool hoverVolumeHandle_ = false;
+    float dragStartVolumeDB_ = 0.0f;
+
+    // Visual constants
+    static constexpr int RESIZE_HANDLE_WIDTH = 6;
+    static constexpr int CORNER_RADIUS = 4;
+    static constexpr int HEADER_HEIGHT = 16;
+    static constexpr int MIN_WIDTH_FOR_NAME = 40;
+    static constexpr int FADE_HANDLE_SIZE = 8;
+    static constexpr int FADE_HANDLE_HIT_WIDTH = 14;
+
+    // Painting helpers
+    void paintAudioClip(juce::Graphics& g, const ClipInfo& clip, juce::Rectangle<int> bounds);
+    void paintMidiClip(juce::Graphics& g, const ClipInfo& clip, juce::Rectangle<int> bounds);
+    void paintMidiNotes(juce::Graphics& g, const ClipInfo& clip, juce::Rectangle<int> noteArea,
+                        juce::Colour noteColour);
+    void paintClipHeader(juce::Graphics& g, const ClipInfo& clip, juce::Rectangle<int> bounds);
+    void paintResizeHandles(juce::Graphics& g, juce::Rectangle<int> bounds);
+    void paintFadeOverlays(juce::Graphics& g, const ClipInfo& clip,
+                           juce::Rectangle<int> waveformArea, double pixelsPerSecond);
+    void paintFadeHandles(juce::Graphics& g, const ClipInfo& clip, juce::Rectangle<int> bounds);
+    void paintVolumeLine(juce::Graphics& g, const ClipInfo& clip,
+                         juce::Rectangle<int> waveformArea);
+
+    // Interaction helpers
+    bool isOnLeftEdge(int x) const;
+    bool isOnRightEdge(int x) const;
+    bool isOnFadeInHandle(int x, int y) const;
+    bool isOnFadeOutHandle(int x, int y) const;
+    bool isOnVolumeHandle(int x, int y) const;
+    void updateCursor(bool isAltDown = false, bool isShiftDown = false, bool isEraseDown = false);
+
+    // Helper to get current clip info
+    const ClipInfo* getClipInfo() const;
+
+    // Context menu
+    void showContextMenu();
+
+    // Waveform render cache — avoids re-drawing from thumbnail on every paint.
+    // During zoom, the cached image is stretched (cheap blit). A debounce timer
+    // re-renders at full quality after zoom settles.
+    juce::Image waveformCache_;
+    int cachedWidth_ = 0;
+    int cachedHeight_ = 0;
+    size_t cachedClipHash_ = 0;
+    bool waveformCacheDirty_ = true;
+    bool mouseIsOver_ = false;
+
+    static size_t computeWaveformHash(const ClipInfo& clip);
+    void paintAudioClipDirect(juce::Graphics& g, const ClipInfo& clip,
+                              juce::Rectangle<int> waveformArea, double clipDisplayLength,
+                              juce::Colour waveColourOverride = {});
+    void timerCallback() override;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClipComponent)
 };
 
 }  // namespace aidaw

@@ -1,17 +1,15 @@
-# Scripting - Embedded Lua runtime for AIDAW
+# Scripting - Embedded Lua runtime for MAGDA
 #
-# This module owns the embedded Lua VM and the AidawApi bindings plus the
-# MIDI controller bridge. Because the bindings expose DAW types directly,
-# aidaw_scripting will eventually link aidaw_daw — splitting the API types
-# into a thin lib so this can be DAW-independent is tracked as future cleanup.
+# This module owns the embedded Lua VM (issue #29) and the MagdaApi
+# bindings (#30) plus the MIDI controller bridge (#592). Because the
+# bindings expose DAW types directly, magda_scripting links magda_daw —
+# splitting the API types into a thin lib so this can be DAW-independent
+# is tracked as future cleanup.
 
 # ---------------------------------------------------------------------------
-# Lua 5.4 static library
-#
-# NOTE: The Lua source must be fetched externally (e.g. via FetchContent in
-# the root CMakeLists.txt). The variable `lua_SOURCE_DIR` should point to
-# the Lua source tree. If using a system-installed Lua, adjust the
-# target_link_libraries below accordingly.
+# Lua 5.4 static library — fetched in the root CMakeLists.txt.
+# Lua's official source distribution does not ship a CMake build, so we
+# compile the .c files directly.
 # ---------------------------------------------------------------------------
 
 set(LUA_SRC_DIR "${lua_SOURCE_DIR}/src")
@@ -58,14 +56,17 @@ target_include_directories(lua_static
     ${LUA_SRC_DIR}
 )
 
-# Lua compiles as C; tell it which platform features are available.
+# Lua compiles as C; tell it which platform features are available so the
+# stdlib (loadlib, os.execute, etc.) link properly. We will sandbox these at
+# runtime, but the symbols still need to resolve.
 if(APPLE)
     target_compile_definitions(lua_static PRIVATE LUA_USE_MACOSX)
 elseif(UNIX)
     target_compile_definitions(lua_static PRIVATE LUA_USE_LINUX)
 endif()
 
-# Suppress warnings from Lua's source (third-party C code).
+# Suppress warnings from Lua's source; this is third-party code and the
+# project's -Wall -Wextra -Wpedantic flags trigger many false positives in it.
 if(MSVC)
     target_compile_options(lua_static PRIVATE /w)
 else()
@@ -79,47 +80,49 @@ set_target_properties(lua_static PROPERTIES
 )
 
 # ---------------------------------------------------------------------------
-# aidaw_scripting — thin C++ wrapper exposing LuaRuntime + LuaSandbox.
+# magda_scripting — thin C++ wrapper exposing LuaRuntime + LuaSandbox.
 # ---------------------------------------------------------------------------
 
-set(AIDAW_SCRIPTING_SOURCES
+set(MAGDA_SCRIPTING_SOURCES
     LuaRuntime.hpp
     LuaRuntime.cpp
     LuaSandbox.hpp
     LuaSandbox.cpp
-    AidawApiLuaBindings.hpp
-    AidawApiLuaBindings.cpp
+    MagdaApiLuaBindings.hpp
+    MagdaApiLuaBindings.cpp
     LuaController.hpp
     LuaController.cpp
     LuaScriptStore.hpp
     LuaScriptStore.cpp
 )
 
-add_library(aidaw_scripting STATIC ${AIDAW_SCRIPTING_SOURCES})
+add_library(magda_scripting STATIC ${MAGDA_SCRIPTING_SOURCES})
 
-target_link_libraries(aidaw_scripting
+target_link_libraries(magda_scripting
     PUBLIC
     lua_static
     juce::juce_core
-    juce::juce_audio_basics
-    juce::juce_audio_devices
-    # TODO: Link aidaw_daw (or equivalent) once the DAW API layer is ported.
-    # The AidawApi bindings currently use stubs.
+    # MagdaApi headers live under magda/daw/api/. The bindings need the
+    # full DAW types (TrackInfo, ClipInfo, ProjectInfo). Long-term these
+    # types could be split into a thin "magda_api_types" lib so scripting
+    # doesn't pull all of magda_daw, but that refactor is out of scope
+    # for #30.
+    magda_daw
 )
 
-target_include_directories(aidaw_scripting
+target_include_directories(magda_scripting
     PUBLIC
-    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}
 )
 
-set_target_properties(aidaw_scripting PROPERTIES
+set_target_properties(magda_scripting PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
 
 if(MSVC)
-    target_compile_options(aidaw_scripting PRIVATE /W4)
+    target_compile_options(magda_scripting PRIVATE /W4)
 else()
-    target_compile_options(aidaw_scripting PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(magda_scripting PRIVATE -Wall -Wextra -Wpedantic)
 endif()

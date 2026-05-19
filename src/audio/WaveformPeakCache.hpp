@@ -20,8 +20,8 @@ namespace aidaw {
  * Thread model: an instance is immutable once constructed. Construction is
  * expected to happen on a background thread; reads are safe from any thread.
  *
- * On-disk layout (.apk, version 1):
- *   - "AWPK" magic (4 bytes)
+ * On-disk layout (.mpk, version 1):
+ *   - "MGPK" magic (4 bytes)
  *   - uint32 version
  *   - uint32 samplesPerPeak (64)
  *   - uint16 numChannels

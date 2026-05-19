@@ -1,4 +1,4 @@
-#include "LuaSandbox.hpp"
+#include "magda/scripting/LuaSandbox.hpp"
 
 extern "C" {
 #include <lauxlib.h>
@@ -18,7 +18,7 @@ namespace {
 // message instead of "attempt to call/index a nil value".
 int sandboxBlocker(lua_State* L) {
     const char* name = lua_tostring(L, lua_upvalueindex(1));
-    return luaL_error(L, "'%s' is disabled in the AIDAW Lua sandbox",
+    return luaL_error(L, "'%s' is disabled in the MAGDA Lua sandbox",
                       name != nullptr ? name : "(unknown)");
 }
 

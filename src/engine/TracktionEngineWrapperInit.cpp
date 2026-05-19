@@ -1,0 +1,597 @@
+#include "../api/magda_api_live.hpp"
+#include "../audio/AudioBridge.hpp"
+#include "../audio/MidiBridge.hpp"
+#include "../audio/controllers/ControllerRouter.hpp"
+#include "../audio/session/SessionClipScheduler.hpp"
+#include "../audio/session/SessionRecorder.hpp"
+#include "../core/Config.hpp"
+#include "../core/ViewModeController.hpp"
+#include "../core/controllers/BindingRegistry.hpp"
+#include "../core/controllers/ControllerProfileRegistry.hpp"
+#include "../core/controllers/MidiLearnCoordinator.hpp"
+#include "../project/ProjectManager.hpp"
+#include "../ui/state/TimelineController.hpp"
+#include "../ui/state/TimelineEvents.hpp"
+#include "MagdaEngineBehaviour.hpp"
+#include "MagdaUIBehaviour.hpp"
+#include "PluginScanCoordinator.hpp"
+#include "PluginWindowManager.hpp"
+#include "TracktionEngineWrapper.hpp"
+
+namespace aidaw {
+
+TracktionEngineWrapper::TracktionEngineWrapper() = default;
+
+TracktionEngineWrapper::~TracktionEngineWrapper() {
+    shutdown();
+}
+
+void TracktionEngineWrapper::initializePluginFormats() {
+    // Register ToneGeneratorPlugin (not registered by default)
+    engine_->getPluginManager().createBuiltInType<tracktion::ToneGeneratorPlugin>();
+
+    // Enable out-of-process scanning to prevent plugin crashes from crashing the app
+    auto& pluginManager = engine_->getPluginManager();
+    pluginManager.setUsesSeparateProcessForScanning(true);
+    DBG("Enabled out-of-process plugin scanning");
+
+    // Load saved plugin list from persistent storage
+    loadPluginList();
+
+    // Drop entries whose files have been uninstalled. Unconditional —
+    // the scan-on-startup flag only governs detecting *new* plugins.
+    // Persist + resync the cached count so PluginSettingsDialog doesn't
+    // show a stale total after the prune.
+    auto& knownPlugins = pluginManager.knownPluginList;
+    if (pruneMissingPlugins(knownPlugins, pluginManager.pluginFormatManager) > 0) {
+        savePluginList();
+        Config::getInstance().setTotalPluginCount(knownPlugins.getNumTypes());
+        Config::getInstance().save();
+    }
+
+    // Auto-detect newly installed plugins (if enabled). The splash screen
+    // wants a flat string; format the phase here.
+    if (Config::getInstance().getScanPluginsOnStartup()) {
+        auto splashStatus = onPluginScanStatus;
+        detectNewPlugins(
+            [splashStatus](IncrementalScanPhase phase, const juce::String& currentPlugin) {
+                if (!splashStatus)
+                    return;
+                switch (phase) {
+                    case IncrementalScanPhase::Discovering:
+                        splashStatus("Checking for new plugins...");
+                        break;
+                    case IncrementalScanPhase::UpToDate:
+                        splashStatus("Plugins up to date");
+                        break;
+                    case IncrementalScanPhase::Scanning:
+                        splashStatus("Scanning: " +
+                                     juce::File(currentPlugin).getFileNameWithoutExtension());
+                        break;
+                }
+            });
+    }
+
+    // Log registered plugin formats
+    auto& formatManager = pluginManager.pluginFormatManager;
+    DBG("Plugin formats registered by Tracktion Engine: " << formatManager.getNumFormats());
+    for (int i = 0; i < formatManager.getNumFormats(); ++i) {
+        auto* format = formatManager.getFormat(i);
+        if (format) {
+            DBG("  Format " << i << ": " << format->getName());
+        }
+    }
+}
+
+void TracktionEngineWrapper::initializeDeviceManager() {
+    auto& dm = engine_->getDeviceManager();
+    auto& juceDeviceManager = dm.deviceManager;
+
+    // Log available audio device types
+    DBG("Available audio device types:");
+    for (auto* type : juceDeviceManager.getAvailableDeviceTypes()) {
+        DBG("  - " << type->getTypeName());
+
+        // Log devices for each type
+        type->scanForDevices();
+        auto inputNames = type->getDeviceNames(true);    // inputs
+        auto outputNames = type->getDeviceNames(false);  // outputs
+
+        DBG("    Input devices:");
+        for (const auto& name : inputNames) {
+            DBG("      - " << name);
+        }
+        DBG("    Output devices:");
+        for (const auto& name : outputNames) {
+            DBG("      - " << name);
+        }
+    }
+
+    // Validate saved audio device setup before TE reads it — if the saved state
+    // has a missing input or output device name, CoreAudio will hang trying to
+    // open a half-configured aggregate device.
+    {
+        auto& storage = engine_->getPropertyStorage();
+        auto audioXml = storage.getXmlProperty(tracktion::SettingID::audio_device_setup);
+        if (audioXml != nullptr) {
+            auto* deviceSetup = audioXml->getChildByName("DEVICESETUP");
+            if (deviceSetup != nullptr) {
+                auto savedInput = deviceSetup->getStringAttribute("audioInputDeviceName");
+                auto savedOutput = deviceSetup->getStringAttribute("audioOutputDeviceName");
+                // If either device name is empty while the other is set, the saved
+                // state is incomplete and will cause CoreAudio to hang on init.
+                if ((savedInput.isNotEmpty() && savedOutput.isEmpty()) ||
+                    (savedInput.isEmpty() && savedOutput.isNotEmpty())) {
+                    storage.removeProperty(tracktion::SettingID::audio_device_setup);
+                }
+            }
+        }
+    }
+
+    // Request all available channels — Tracktion creates WaveInputDevices
+    // for all hardware channels and expects them all in the audio callback.
+    // JUCE clamps to actual hardware count.
+    static constexpr int kMaxRequestedChannels = 256;
+    int inputChannels = kMaxRequestedChannels;
+    int outputChannels = kMaxRequestedChannels;
+    dm.initialise(inputChannels, outputChannels);
+    DBG("DeviceManager initialized with " << inputChannels << " input / " << outputChannels
+                                          << " output channels");
+
+    if (juceDeviceManager.getCurrentAudioDevice() == nullptr)
+        DBG("WARNING: No audio device opened after initialise — user can configure in Audio "
+            "Settings");
+}
+
+void TracktionEngineWrapper::configureAudioDevices() {
+    auto& config = aidaw::Config::getInstance();
+    std::string preferredInputDevice = config.getPreferredInputDevice();
+    std::string preferredOutputDevice = config.getPreferredOutputDevice();
+    int preferredInputs = config.getPreferredInputChannels();
+    int preferredOutputs = config.getPreferredOutputChannels();
+
+    // Only configure if user specified preferences
+    if (preferredInputDevice.empty() && preferredOutputDevice.empty()) {
+        return;
+    }
+
+    auto& dm = engine_->getDeviceManager();
+    auto& juceDeviceManager = dm.deviceManager;
+    auto& deviceTypes = juceDeviceManager.getAvailableDeviceTypes();
+
+    if (deviceTypes.isEmpty()) {
+        return;
+    }
+
+    auto* deviceType = deviceTypes[0];  // Use first available type (CoreAudio on macOS)
+    deviceType->scanForDevices();
+
+    auto outputDevices = deviceType->getDeviceNames(false);  // outputs
+    auto inputDevices = deviceType->getDeviceNames(true);    // inputs
+
+    juce::AudioDeviceManager::AudioDeviceSetup setup;
+    juceDeviceManager.getAudioDeviceSetup(setup);
+
+    // Set input device if specified
+    if (!preferredInputDevice.empty() && inputDevices.contains(preferredInputDevice)) {
+        setup.inputDeviceName = preferredInputDevice;
+        DBG("Found preferred input device: " << preferredInputDevice);
+    }
+
+    // Set output device if specified
+    if (!preferredOutputDevice.empty() && outputDevices.contains(preferredOutputDevice)) {
+        setup.outputDeviceName = preferredOutputDevice;
+        DBG("Found preferred output device: " << preferredOutputDevice);
+    }
+
+    // Apply the device setup — let JUCE pick default channels for the new device,
+    // then we'll enable all channels after the device has opened.
+    setup.useDefaultInputChannels = true;
+    setup.useDefaultOutputChannels = true;
+
+    auto result = juceDeviceManager.setAudioDeviceSetup(setup, true);
+    // Flush pending async updates so the new device is fully active
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(0);
+    if (result.isEmpty()) {
+        DBG("Successfully selected preferred devices - Input: "
+            << setup.inputDeviceName << " (" << preferredInputs
+            << " ch), Output: " << setup.outputDeviceName << " (" << preferredOutputs << " ch)");
+    } else {
+        DBG("Failed to select preferred devices: " << result);
+    }
+
+    // Enable ALL hardware channels on the NEW device — Tracktion expects every
+    // hardware channel in the audio callback. We must read channel count from
+    // the new device, not the old one.
+    // Note: setAudioDeviceSetup triggers TE's changeListenerCallback which calls
+    // saveSettings() + rescanWaveDeviceList() automatically. The flush processes
+    // the async rescan so wave devices are rebuilt before we configure them.
+    if (auto* device = juceDeviceManager.getCurrentAudioDevice()) {
+        auto newSetup = juceDeviceManager.getAudioDeviceSetup();
+        newSetup.inputChannels.clear();
+        newSetup.inputChannels.setRange(0, device->getInputChannelNames().size(), true);
+        newSetup.outputChannels.clear();
+        newSetup.outputChannels.setRange(0, device->getOutputChannelNames().size(), true);
+        newSetup.useDefaultInputChannels = false;
+        newSetup.useDefaultOutputChannels = false;
+        juceDeviceManager.setAudioDeviceSetup(newSetup, true);
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(0);
+    }
+
+    // Apply saved channel preferences at the TE wave device level
+    if (preferredInputs > 0) {
+        for (auto* dev : dm.getWaveInputDevices()) {
+            bool shouldEnable = false;
+            for (const auto& ch : dev->getChannels()) {
+                if (ch.indexInDevice < preferredInputs) {
+                    shouldEnable = true;
+                    break;
+                }
+            }
+            dev->setEnabled(shouldEnable);
+        }
+        DBG("Applied preferred input channel count: " << preferredInputs);
+    }
+    if (preferredOutputs > 0) {
+        for (auto* dev : dm.getWaveOutputDevices()) {
+            bool shouldEnable = false;
+            for (const auto& ch : dev->getChannels()) {
+                if (ch.indexInDevice < preferredOutputs) {
+                    shouldEnable = true;
+                    break;
+                }
+            }
+            dev->setEnabled(shouldEnable);
+        }
+        DBG("Applied preferred output channel count: " << preferredOutputs);
+    }
+
+    // Log currently selected device
+    if (auto* currentDevice = juceDeviceManager.getCurrentAudioDevice()) {
+        DBG("Current audio device: " + currentDevice->getName());
+        DBG("  Type: " + currentDevice->getTypeName());
+        DBG("  Sample rate: " + juce::String(currentDevice->getCurrentSampleRate()));
+        DBG("  Buffer size: " + juce::String(currentDevice->getCurrentBufferSizeSamples()));
+        DBG("  Input channels: " + juce::String(currentDevice->getInputChannelNames().size()));
+        DBG("  Output channels: " + juce::String(currentDevice->getOutputChannelNames().size()));
+    } else {
+        DBG("WARNING: No audio device selected!");
+    }
+}
+
+void TracktionEngineWrapper::setupMidiDevices() {
+    auto& dm = engine_->getDeviceManager();
+    auto& juceDeviceManager = dm.deviceManager;
+
+    // Enable MIDI devices at JUCE level
+    auto midiInputs = juce::MidiInput::getAvailableDevices();
+    DBG("JUCE MIDI inputs available: " << midiInputs.size());
+    for (const auto& midiInput : midiInputs) {
+        if (!juceDeviceManager.isMidiInputDeviceEnabled(midiInput.identifier)) {
+            juceDeviceManager.setMidiInputDeviceEnabled(midiInput.identifier, true);
+            DBG("Enabled JUCE MIDI input: " << midiInput.name);
+        }
+    }
+
+    // Listen for device manager changes
+    dm.addChangeListener(this);
+
+    // Trigger rescan for Tracktion Engine to pick up MIDI devices
+    dm.rescanMidiDeviceList();
+    DBG("MIDI device rescan triggered (async, listener registered)");
+
+    // Enable Tracktion Engine MIDI input devices
+    for (auto& midiInput : dm.getMidiInDevices()) {
+        if (midiInput && !midiInput->isEnabled()) {
+            midiInput->setEnabled(true);
+            DBG("Enabled TE MIDI input device: " << midiInput->getName());
+        }
+    }
+}
+
+void TracktionEngineWrapper::createEditAndBridges() {
+    // Create a temporary Edit (project)
+    auto editFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                        .getChildFile("magda_temp.tracktionedit");
+
+    // Delete any existing temp file to ensure clean state
+    if (editFile.existsAsFile()) {
+        editFile.deleteFile();
+    }
+
+    currentEdit_ = tracktion::createEmptyEdit(*engine_, editFile);
+
+    if (!currentEdit_) {
+        DBG("Tracktion Engine initialized (no Edit created)");
+        return;
+    }
+
+    // Set default tempo
+    auto& tempoSeq = currentEdit_->tempoSequence;
+    if (tempoSeq.getNumTempos() > 0) {
+        auto tempo = tempoSeq.getTempo(0);
+        if (tempo) {
+            tempo->setBpm(120.0);
+        }
+    }
+
+    // Ensure playback context is created for MIDI routing
+    currentEdit_->getTransport().ensureContextAllocated();
+    if (auto* ctx = currentEdit_->getCurrentPlaybackContext()) {
+        DBG("Playback context allocated for live MIDI monitoring");
+        DBG("  Total inputs in context: " << ctx->getAllInputs().size());
+    } else {
+        DBG("WARNING: ensureContextAllocated() called but context is still null!");
+    }
+
+    // Create AudioBridge for TrackManager synchronization
+    audioBridge_ = std::make_unique<AudioBridge>(*engine_, *currentEdit_);
+    audioBridge_->syncAll();
+
+    // Create SessionClipScheduler and PluginWindowManager only when NOT in headless CI
+    // Both extend juce::Timer which creates GUI infrastructure and leaks in tests
+    // Check: Skip if DISPLAY env var not set (Linux headless) or if explicitly disabled
+    auto osType = juce::SystemStats::getOperatingSystemType();
+    bool isMacOS = (osType & juce::SystemStats::MacOSX) != 0;
+    bool isWindows = (osType & juce::SystemStats::Windows) != 0;
+    bool isHeadless = (std::getenv("DISPLAY") == nullptr && !isMacOS && !isWindows);
+
+    if (!isHeadless) {
+        sessionScheduler_ = std::make_unique<SessionClipScheduler>(
+            *audioBridge_, *currentEdit_, audioBridge_->getSessionAudioMonitor());
+        // Install the session monitor plugin up-front so the audio-thread
+        // pulse (transport position, beat indicator) keeps ticking even
+        // before any session clip has been launched.
+        audioBridge_->ensureSessionMonitorPlugin();
+        sessionRecorder_ = std::make_unique<SessionRecorder>(*currentEdit_);
+        sessionRecorder_->setRecordingPreviews(&recordingPreviews_);
+        sessionRecorder_->setPlayStateQuery([this](ClipId clipId) {
+            return sessionScheduler_ ? sessionScheduler_->getClipPlayState(clipId)
+                                     : SessionClipPlayState::Stopped;
+        });
+        sessionRecorder_->setLaunchTimeQuery([this](TrackId trackId) {
+            return audioBridge_ ? audioBridge_->getLastLaunchTimeForTrack(trackId) : 0.0;
+        });
+        pluginWindowManager_ = std::make_unique<PluginWindowManager>(*engine_, *currentEdit_);
+        audioBridge_->setPluginWindowManager(pluginWindowManager_.get());
+    }
+
+    // Configure AudioBridge
+    audioBridge_->setEngineWrapper(this);
+    audioBridge_->enableAllMidiInputDevices();
+
+    // Wire up state capture before project save
+    auto* bridge = audioBridge_.get();
+    ProjectManager::getInstance().onBeforeSave = [bridge]() {
+        if (bridge) {
+            bridge->captureAllPluginStates();
+            bridge->captureWarpMarkerStates();
+        }
+
+        // Capture zoom/scroll state
+        if (auto* tc = TimelineController::getCurrent()) {
+            auto& zoom = tc->getState().zoom;
+            auto& proj = ProjectManager::getInstance().getMutableProjectInfo();
+            proj.horizontalZoom = zoom.horizontalZoom;
+            proj.verticalZoom = zoom.verticalZoom;
+            proj.scrollX = zoom.scrollX;
+            proj.scrollY = zoom.scrollY;
+        }
+
+        // Capture active view mode
+        auto viewMode = ViewModeController::getInstance().getViewMode();
+        ProjectManager::getInstance().getMutableProjectInfo().activeView =
+            static_cast<int>(viewMode);
+
+        // Capture project-scoped bindings
+        ProjectManager::getInstance().getMutableProjectInfo().projectBindings =
+            BindingRegistry::getInstance().saveProject();
+    };
+
+    // Wire up state restore after project load
+    ProjectManager::getInstance().onAfterLoad = [](const ProjectInfo& info) {
+        // Restore active view mode
+        auto viewMode = static_cast<ViewMode>(info.activeView);
+        ViewModeController::getInstance().setViewMode(viewMode);
+
+        // Restore project-scoped bindings
+        BindingRegistry::getInstance().loadProject(info.projectBindings);
+
+        // Restore zoom/scroll state
+        if (info.horizontalZoom > 0.0) {
+            double hz = info.horizontalZoom;
+            int sx = info.scrollX;
+            int sy = info.scrollY;
+            // Try immediate dispatch first
+            if (auto* tc = TimelineController::getCurrent()) {
+                tc->dispatch(SetZoomEvent{hz});
+                tc->dispatch(SetScrollPositionEvent{sx, sy});
+            }
+            // Also defer to catch cases where UI isn't ready yet
+            juce::MessageManager::callAsync([hz, sx, sy]() {
+                if (auto* tc = TimelineController::getCurrent()) {
+                    tc->dispatch(SetZoomEvent{hz});
+                    tc->dispatch(SetScrollPositionEvent{sx, sy});
+                }
+            });
+        }
+    };
+
+    // Create MidiBridge for MIDI device management
+    midiBridge_ = std::make_unique<MidiBridge>(*engine_);
+    midiBridge_->setAudioBridge(audioBridge_.get());
+    midiBridge_->setRecordingQueue(&recordingNoteQueue_, &transportPositionForMidi_);
+
+    // Register as transport listener for recording callbacks
+    currentEdit_->getTransport().addListener(this);
+
+    // Programmatic facade onto DAW state — shared with AI Chat panel and
+    // app-level Lua controller wiring.
+    auto live = std::make_unique<MagdaApiLive>();
+    live->setMidiBridge(midiBridge_.get());
+    live->setEditAccessor([this]() -> tracktion::Edit* { return currentEdit_.get(); });
+    magdaApi_ = std::move(live);
+
+    DBG("Tracktion Engine initialized with Edit, AudioBridge, and MidiBridge");
+}
+
+bool TracktionEngineWrapper::initialize() {
+    try {
+        // Initialize Tracktion Engine with custom UIBehaviour for plugin windows
+        juce::Logger::writeToLog("[Init] Creating Tracktion Engine...");
+        auto uiBehaviour = std::make_unique<MagdaUIBehaviour>();
+        auto engineBehaviour = std::make_unique<MagdaEngineBehaviour>();
+        engine_ = std::make_unique<tracktion::Engine>("MAGDA", std::move(uiBehaviour),
+                                                      std::move(engineBehaviour));
+
+        // Load config early so preferred device settings are available
+        juce::Logger::writeToLog("[Init] Loading config...");
+        aidaw::Config::getInstance().load();
+
+        // Load hardware controller profiles (bundled + user)
+        juce::Logger::writeToLog("[Init] Loading controller profiles...");
+        aidaw::ControllerProfileRegistry::getInstance().load();
+
+        // Initialize plugin formats and load plugin list
+        juce::Logger::writeToLog("[Init] initializePluginFormats()...");
+        initializePluginFormats();
+        juce::Logger::writeToLog("[Init] initializePluginFormats() done");
+
+        // Initialize device manager with preferred settings
+        juce::Logger::writeToLog("[Init] initializeDeviceManager()...");
+        initializeDeviceManager();
+        juce::Logger::writeToLog("[Init] initializeDeviceManager() done");
+
+        // Configure audio devices if user has preferences
+        juce::Logger::writeToLog("[Init] configureAudioDevices()...");
+        configureAudioDevices();
+        juce::Logger::writeToLog("[Init] configureAudioDevices() done");
+
+        // Setup MIDI devices
+        juce::Logger::writeToLog("[Init] setupMidiDevices()...");
+        setupMidiDevices();
+        juce::Logger::writeToLog("[Init] setupMidiDevices() done");
+
+        // Create Edit and bridges
+        juce::Logger::writeToLog("[Init] createEditAndBridges()...");
+        createEditAndBridges();
+        juce::Logger::writeToLog("[Init] createEditAndBridges() done");
+
+        // Ensure devicesLoading_ is cleared so transport isn't blocked
+        // The async changeListenerCallback may not fire if no MIDI devices are present
+        if (devicesLoading_) {
+            devicesLoading_ = false;
+        }
+
+        juce::Logger::writeToLog("[Init] initialize() complete, edit=" +
+                                 juce::String(currentEdit_ != nullptr ? "OK" : "NULL"));
+        return currentEdit_ != nullptr;
+
+    } catch (const std::exception& e) {
+        juce::Logger::writeToLog("ERROR: Failed to initialize: " + juce::String(e.what()));
+        return false;
+    }
+}
+
+void TracktionEngineWrapper::shutdown() {
+    DBG("TracktionEngineWrapper::shutdown - starting...");
+
+    // Signal that this object is being destroyed so pending callAsync lambdas
+    // that captured aliveFlag_ can bail out instead of dereferencing `this`.
+    *aliveFlag_ = false;
+
+    // Wait for background plugin discovery to finish before tearing down
+    if (pluginDiscoveryThread_.joinable())
+        pluginDiscoveryThread_.join();
+
+    // Release test tone plugin first (before Edit is destroyed)
+    testTonePlugin_.reset();
+
+    // Remove transport listener before destroying edit
+    if (currentEdit_) {
+        currentEdit_->getTransport().removeListener(this);
+    }
+
+    // Remove device manager listener
+    if (engine_) {
+        engine_->getDeviceManager().removeChangeListener(this);
+    }
+
+    // CRITICAL: Close all plugin windows FIRST (before plugins are destroyed)
+    // This prevents malloc errors from windows trying to access destroyed plugins
+    if (pluginWindowManager_) {
+        DBG("Closing all plugin windows...");
+        pluginWindowManager_->closeAllWindows();
+        pluginWindowManager_.reset();
+    }
+
+    // Destroy session scheduler before AudioBridge (it references both)
+    if (sessionScheduler_) {
+        sessionScheduler_.reset();
+    }
+
+    // Clear the pre-save/post-load callbacks before destroying AudioBridge
+    ProjectManager::getInstance().onBeforeSave = nullptr;
+    ProjectManager::getInstance().onAfterLoad = nullptr;
+
+    // Clear MidiBridge's reference to AudioBridge before destroying it
+    if (midiBridge_)
+        midiBridge_->clearAudioBridge();
+
+    // Destroy AudioBridge first (it references Edit and Engine)
+    if (audioBridge_) {
+        audioBridge_.reset();
+    }
+
+    // CRITICAL: Stop transport and release playback context BEFORE destroying Edit
+    // This ensures audio/MIDI devices are properly released
+    if (currentEdit_) {
+        DBG("Stopping transport and releasing playback context...");
+        auto& transport = currentEdit_->getTransport();
+
+        // Stop playback if running
+        if (transport.isPlaying()) {
+            transport.stop(false, false);
+        }
+
+        // Release the playback context - this frees audio/MIDI device resources
+        transport.freePlaybackContext();
+
+        DBG("Destroying Edit...");
+        currentEdit_.reset();
+    }
+
+    // CRITICAL: Destroy MidiBridge AFTER freeing playback context but BEFORE
+    // closing devices. MidiBridge::~MidiBridge() stops all MIDI inputs first,
+    // which unregisters CoreMIDI callbacks. This must happen while the MIDI
+    // devices still exist, but after playback is stopped.
+    if (midiBridge_) {
+        // Cancel any active MIDI Learn session before shutting down the router.
+        MidiLearnCoordinator::getInstance().cancelLearn();
+        // Shut down ControllerRouter before stopping MIDI inputs so it can
+        // unsubscribe from MidiBridge cleanly.
+        ControllerRouter::getInstance().shutdown();
+        DBG("Stopping MIDI inputs...");
+        midiBridge_->stopAllInputs();
+        DBG("Destroying MidiBridge...");
+        midiBridge_.reset();
+    }
+
+    // MagdaApi is a thin facade over singletons — safe to reset anytime,
+    // but match teardown order with construction.
+    magdaApi_.reset();
+
+    // Close audio/MIDI devices before destroying engine
+    if (engine_) {
+        DBG("Closing audio devices...");
+        auto& dm = engine_->getDeviceManager();
+        dm.closeDevices();
+
+        DBG("Destroying Tracktion Engine...");
+        engine_.reset();
+    }
+
+    DBG("Tracktion Engine shutdown complete");
+}
+
+}  // namespace aidaw

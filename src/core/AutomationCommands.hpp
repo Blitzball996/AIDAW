@@ -7,92 +7,63 @@
 namespace aidaw {
 
 /**
- * @brief Command for adding an automation point
+ * @brief Command for adding an automation point (lane or clip)
  */
 class AddAutomationPointCommand : public UndoableCommand {
   public:
-    AddAutomationPointCommand(AutomationLaneId laneId, AutomationClipId clipId,
-                              double beatPosition, double value,
+    AddAutomationPointCommand(AutomationLaneId laneId, AutomationClipId clipId, double beatPosition,
+                              double value,
                               AutomationCurveType curveType = AutomationCurveType::Linear)
-        : laneId_(laneId), clipId_(clipId), beatPosition_(beatPosition),
-          value_(value), curveType_(curveType),
+        : laneId_(laneId),
+          clipId_(clipId),
+          beatPosition_(beatPosition),
+          value_(value),
+          curveType_(curveType),
           isClip_(clipId != INVALID_AUTOMATION_CLIP_ID) {}
 
-    void execute() override {
-        auto& mgr = AutomationManager::getInstance();
-        if (isClip_)
-            addedPointId_ = mgr.addPointToClip(clipId_, beatPosition_, value_, curveType_);
-        else
-            addedPointId_ = mgr.addPoint(laneId_, beatPosition_, value_, curveType_);
+    void execute() override;
+    void undo() override;
+    juce::String getDescription() const override {
+        return "Add Automation Point";
     }
 
-    void undo() override {
-        auto& mgr = AutomationManager::getInstance();
-        if (isClip_)
-            mgr.deletePointFromClip(clipId_, addedPointId_);
-        else
-            mgr.deletePoint(laneId_, addedPointId_);
+    /// Valid after execute() has run. INVALID_AUTOMATION_POINT_ID otherwise.
+    AutomationPointId getAddedPointId() const {
+        return addedPointId_;
     }
-
-    juce::String getDescription() const override { return "Add Automation Point"; }
-    AutomationPointId getAddedPointId() const { return addedPointId_; }
 
   private:
     AutomationLaneId laneId_;
     AutomationClipId clipId_;
-    double beatPosition_, value_;
+    double beatPosition_;
+    double value_;
     AutomationCurveType curveType_;
     bool isClip_;
     AutomationPointId addedPointId_ = INVALID_AUTOMATION_POINT_ID;
 };
 
 /**
- * @brief Command for deleting an automation point
+ * @brief Command for deleting an automation point (lane or clip)
  */
 class DeleteAutomationPointCommand : public UndoableCommand {
   public:
     DeleteAutomationPointCommand(AutomationLaneId laneId, AutomationClipId clipId,
                                  AutomationPointId pointId)
-        : laneId_(laneId), clipId_(clipId), pointId_(pointId),
+        : laneId_(laneId),
+          clipId_(clipId),
+          pointId_(pointId),
           isClip_(clipId != INVALID_AUTOMATION_CLIP_ID) {
         capturePoint();
     }
 
-    void execute() override {
-        auto& mgr = AutomationManager::getInstance();
-        if (isClip_)
-            mgr.deletePointFromClip(clipId_, pointId_);
-        else
-            mgr.deletePoint(laneId_, pointId_);
+    void execute() override;
+    void undo() override;
+    juce::String getDescription() const override {
+        return "Delete Automation Point";
     }
-
-    void undo() override {
-        auto& mgr = AutomationManager::getInstance();
-        if (isClip_)
-            mgr.addPointToClip(clipId_, storedPoint_.beatPosition, storedPoint_.value,
-                               storedPoint_.curveType);
-        else
-            mgr.addPoint(laneId_, storedPoint_.beatPosition, storedPoint_.value,
-                         storedPoint_.curveType);
-    }
-
-    juce::String getDescription() const override { return "Delete Automation Point"; }
 
   private:
-    void capturePoint() {
-        auto& mgr = AutomationManager::getInstance();
-        if (isClip_) {
-            if (auto* clip = mgr.getClip(clipId_)) {
-                for (const auto& p : clip->points)
-                    if (p.id == pointId_) { storedPoint_ = p; break; }
-            }
-        } else {
-            if (auto* lane = mgr.getLane(laneId_)) {
-                for (const auto& p : lane->absolutePoints)
-                    if (p.id == pointId_) { storedPoint_ = p; break; }
-            }
-        }
-    }
+    void capturePoint();
 
     AutomationLaneId laneId_;
     AutomationClipId clipId_;
@@ -108,36 +79,26 @@ class MoveAutomationPointCommand : public UndoableCommand {
   public:
     MoveAutomationPointCommand(AutomationLaneId laneId, AutomationClipId clipId,
                                AutomationPointId pointId, double newBeatPosition, double newValue)
-        : laneId_(laneId), clipId_(clipId), pointId_(pointId),
-          newBeatPosition_(newBeatPosition), newValue_(newValue),
+        : laneId_(laneId),
+          clipId_(clipId),
+          pointId_(pointId),
+          newBeatPosition_(newBeatPosition),
+          newValue_(newValue),
           isClip_(clipId != INVALID_AUTOMATION_CLIP_ID) {
         captureOldPosition();
     }
 
-    void execute() override {
-        auto& mgr = AutomationManager::getInstance();
-        if (isClip_)
-            mgr.movePointInClip(clipId_, pointId_, newBeatPosition_, newValue_);
-        else
-            mgr.movePoint(laneId_, pointId_, newBeatPosition_, newValue_);
+    void execute() override;
+    void undo() override;
+    juce::String getDescription() const override {
+        return "Move Automation Point";
     }
-
-    void undo() override {
-        auto& mgr = AutomationManager::getInstance();
-        if (isClip_)
-            mgr.movePointInClip(clipId_, pointId_, oldBeatPosition_, oldValue_);
-        else
-            mgr.movePoint(laneId_, pointId_, oldBeatPosition_, oldValue_);
-    }
-
-    juce::String getDescription() const override { return "Move Automation Point"; }
 
     bool canMergeWith(const UndoableCommand* other) const override {
         if (auto* o = dynamic_cast<const MoveAutomationPointCommand*>(other))
             return o->pointId_ == pointId_ && o->laneId_ == laneId_ && o->clipId_ == clipId_;
         return false;
     }
-
     void mergeWith(const UndoableCommand* other) override {
         auto* o = static_cast<const MoveAutomationPointCommand*>(other);
         newBeatPosition_ = o->newBeatPosition_;
@@ -145,28 +106,7 @@ class MoveAutomationPointCommand : public UndoableCommand {
     }
 
   private:
-    void captureOldPosition() {
-        auto& mgr = AutomationManager::getInstance();
-        if (isClip_) {
-            if (auto* clip = mgr.getClip(clipId_)) {
-                for (const auto& p : clip->points)
-                    if (p.id == pointId_) {
-                        oldBeatPosition_ = p.beatPosition;
-                        oldValue_ = p.value;
-                        break;
-                    }
-            }
-        } else {
-            if (auto* lane = mgr.getLane(laneId_)) {
-                for (const auto& p : lane->absolutePoints)
-                    if (p.id == pointId_) {
-                        oldBeatPosition_ = p.beatPosition;
-                        oldValue_ = p.value;
-                        break;
-                    }
-            }
-        }
-    }
+    void captureOldPosition();
 
     AutomationLaneId laneId_;
     AutomationClipId clipId_;
@@ -177,33 +117,148 @@ class MoveAutomationPointCommand : public UndoableCommand {
 };
 
 /**
- * @brief Command for deleting an entire automation lane
+ * @brief Command for setting automation point tension (supports merging)
+ */
+class SetAutomationPointTensionCommand : public UndoableCommand {
+  public:
+    SetAutomationPointTensionCommand(AutomationLaneId laneId, AutomationClipId clipId,
+                                     AutomationPointId pointId, double newTension)
+        : laneId_(laneId),
+          clipId_(clipId),
+          pointId_(pointId),
+          newTension_(newTension),
+          isClip_(clipId != INVALID_AUTOMATION_CLIP_ID) {
+        captureOldTension();
+    }
+
+    void execute() override;
+    void undo() override;
+    juce::String getDescription() const override {
+        return "Set Automation Tension";
+    }
+
+    bool canMergeWith(const UndoableCommand* other) const override {
+        if (auto* o = dynamic_cast<const SetAutomationPointTensionCommand*>(other))
+            return o->pointId_ == pointId_ && o->laneId_ == laneId_ && o->clipId_ == clipId_;
+        return false;
+    }
+    void mergeWith(const UndoableCommand* other) override {
+        newTension_ = static_cast<const SetAutomationPointTensionCommand*>(other)->newTension_;
+    }
+
+  private:
+    void captureOldTension();
+
+    AutomationLaneId laneId_;
+    AutomationClipId clipId_;
+    AutomationPointId pointId_;
+    double newTension_;
+    double oldTension_ = 0.0;
+    bool isClip_;
+};
+
+/**
+ * @brief Command for setting automation point bezier handles (supports merging)
+ */
+class SetAutomationPointHandlesCommand : public UndoableCommand {
+  public:
+    SetAutomationPointHandlesCommand(AutomationLaneId laneId, AutomationClipId clipId,
+                                     AutomationPointId pointId, const BezierHandle& newInHandle,
+                                     const BezierHandle& newOutHandle)
+        : laneId_(laneId),
+          clipId_(clipId),
+          pointId_(pointId),
+          newInHandle_(newInHandle),
+          newOutHandle_(newOutHandle),
+          isClip_(clipId != INVALID_AUTOMATION_CLIP_ID) {
+        captureOldHandles();
+    }
+
+    void execute() override;
+    void undo() override;
+    juce::String getDescription() const override {
+        return "Set Automation Handles";
+    }
+
+    bool canMergeWith(const UndoableCommand* other) const override {
+        if (auto* o = dynamic_cast<const SetAutomationPointHandlesCommand*>(other))
+            return o->pointId_ == pointId_ && o->laneId_ == laneId_ && o->clipId_ == clipId_;
+        return false;
+    }
+    void mergeWith(const UndoableCommand* other) override {
+        auto* o = static_cast<const SetAutomationPointHandlesCommand*>(other);
+        newInHandle_ = o->newInHandle_;
+        newOutHandle_ = o->newOutHandle_;
+    }
+
+  private:
+    void captureOldHandles();
+
+    AutomationLaneId laneId_;
+    AutomationClipId clipId_;
+    AutomationPointId pointId_;
+    BezierHandle newInHandle_, newOutHandle_;
+    BezierHandle oldInHandle_, oldOutHandle_;
+    bool isClip_;
+};
+
+/**
+ * @brief Command for setting an automation point's curve type
+ */
+class SetAutomationPointCurveTypeCommand : public UndoableCommand {
+  public:
+    SetAutomationPointCurveTypeCommand(AutomationLaneId laneId, AutomationClipId clipId,
+                                       AutomationPointId pointId, AutomationCurveType newCurveType)
+        : laneId_(laneId),
+          clipId_(clipId),
+          pointId_(pointId),
+          newCurveType_(newCurveType),
+          isClip_(clipId != INVALID_AUTOMATION_CLIP_ID) {
+        captureOldCurveType();
+    }
+
+    void execute() override;
+    void undo() override;
+    juce::String getDescription() const override {
+        return "Set Automation Curve Type";
+    }
+
+  private:
+    void captureOldCurveType();
+
+    AutomationLaneId laneId_;
+    AutomationClipId clipId_;
+    AutomationPointId pointId_;
+    AutomationCurveType newCurveType_;
+    AutomationCurveType oldCurveType_ = AutomationCurveType::Linear;
+    bool isClip_;
+};
+
+/**
+ * @brief Command for deleting an entire automation lane (and its clips)
+ *
+ * Captures the full lane state plus any clip-based data so that undo
+ * re-inserts the lane at its original index.
  */
 class DeleteAutomationLaneCommand : public UndoableCommand {
   public:
     explicit DeleteAutomationLaneCommand(AutomationLaneId laneId) : laneId_(laneId) {
-        auto& mgr = AutomationManager::getInstance();
-        if (auto* lane = mgr.getLane(laneId)) {
-            storedLane_ = *lane;
-            captured_ = true;
-        }
+        captureLane();
     }
 
-    void execute() override {
-        if (captured_)
-            AutomationManager::getInstance().deleteLane(laneId_);
+    void execute() override;
+    void undo() override;
+    juce::String getDescription() const override {
+        return "Delete Automation Lane";
     }
-
-    void undo() override {
-        if (captured_)
-            AutomationManager::getInstance().restoreLane(storedLane_);
-    }
-
-    juce::String getDescription() const override { return "Delete Automation Lane"; }
 
   private:
+    void captureLane();
+
     AutomationLaneId laneId_;
     AutomationLaneInfo storedLane_;
+    std::vector<AutomationClipInfo> storedClips_;
+    size_t storedIndex_ = 0;
     bool captured_ = false;
 };
 

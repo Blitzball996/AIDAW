@@ -1,8 +1,10 @@
 #include "DeviceMeteringManager.hpp"
 
+#include "plugin_manager/PluginManager.hpp"
+
 namespace aidaw {
 
-#ifdef AIDAW_HAS_TRACKTION
+// Static members
 std::map<te::Edit*, DeviceMeteringManager*> DeviceMeteringManager::editMap_;
 juce::CriticalSection DeviceMeteringManager::editMapLock_;
 
@@ -35,30 +37,26 @@ void DeviceMeteringManager::removeMeasurer(DeviceId deviceId) {
     }
 }
 
-DeviceMeteringManager* DeviceMeteringManager::getInstanceForEdit(te::Edit& edit) {
-    juce::ScopedLock sl(editMapLock_);
-    auto it = editMap_.find(&edit);
-    return it != editMap_.end() ? it->second : nullptr;
-}
+DeviceId DeviceMeteringManager::getDeviceIdForPlugin(te::Plugin* plugin) const {
+    if (!pluginManager_ || !plugin)
+        return INVALID_DEVICE_ID;
 
-void DeviceMeteringManager::registerForEdit(te::Edit& edit, DeviceMeteringManager* mgr) {
-    juce::ScopedLock sl(editMapLock_);
-    editMap_[&edit] = mgr;
+    return pluginManager_->getDeviceIdForPlugin(plugin);
 }
-
-void DeviceMeteringManager::unregisterForEdit(te::Edit& edit) {
-    juce::ScopedLock sl(editMapLock_);
-    editMap_.erase(&edit);
-}
-#endif  // AIDAW_HAS_TRACKTION
 
 void DeviceMeteringManager::updateAllClients() {
     juce::ScopedLock sl(lock_);
     for (auto& [deviceId, entry] : entries_) {
-#ifdef AIDAW_HAS_TRACKTION
         if (!entry->clientRegistered) {
-            entry->measurer.addClient(entry->client);
-            entry->clientRegistered = true;
+            if (entry->realtimeTap) {
+                entry->peakL.store(
+                    entry->realtimeTap->peakL.exchange(0.0f, std::memory_order_relaxed),
+                    std::memory_order_relaxed);
+                entry->peakR.store(
+                    entry->realtimeTap->peakR.exchange(0.0f, std::memory_order_relaxed),
+                    std::memory_order_relaxed);
+            }
+            continue;
         }
 
         auto levelL = entry->client.getAndClearAudioLevel(0);
@@ -66,18 +64,6 @@ void DeviceMeteringManager::updateAllClients() {
 
         float peakL = juce::Decibels::decibelsToGain(levelL.dB);
         float peakR = juce::Decibels::decibelsToGain(levelR.dB);
-#else
-        float peakL = 0.0f;
-        float peakR = 0.0f;
-#endif
-
-        // Merge with realtime tap if present
-        if (entry->realtimeTap) {
-            float tapL = entry->realtimeTap->peakL.exchange(0.0f, std::memory_order_relaxed);
-            float tapR = entry->realtimeTap->peakR.exchange(0.0f, std::memory_order_relaxed);
-            peakL = std::max(peakL, tapL);
-            peakR = std::max(peakR, tapR);
-        }
 
         entry->peakL.store(peakL, std::memory_order_relaxed);
         entry->peakR.store(peakR, std::memory_order_relaxed);
@@ -95,17 +81,22 @@ bool DeviceMeteringManager::getLatestLevels(DeviceId deviceId, DeviceMeterData& 
     return true;
 }
 
-void DeviceMeteringManager::setGain(DeviceId deviceId, float gainLinear) {
+void DeviceMeteringManager::setGain(DeviceId deviceId, float gain) {
     juce::ScopedLock sl(lock_);
     auto it = entries_.find(deviceId);
-    if (it != entries_.end())
-        it->second->gainLinear.store(gainLinear, std::memory_order_relaxed);
+    if (it != entries_.end()) {
+        it->second->gainLinear.store(gain, std::memory_order_relaxed);
+        if (it->second->realtimeTap)
+            it->second->realtimeTap->gainLinear.store(gain, std::memory_order_relaxed);
+    }
 }
 
 std::atomic<float>* DeviceMeteringManager::getGainAtomic(DeviceId deviceId) {
     juce::ScopedLock sl(lock_);
     auto it = entries_.find(deviceId);
-    return it != entries_.end() ? &it->second->gainLinear : nullptr;
+    if (it != entries_.end())
+        return &it->second->gainLinear;
+    return nullptr;
 }
 
 void DeviceMeteringManager::setDirectLevels(DeviceId deviceId, float peakL, float peakR) {
@@ -119,27 +110,25 @@ void DeviceMeteringManager::setDirectLevels(DeviceId deviceId, float peakL, floa
 
 void DeviceMeteringManager::ensureEntry(DeviceId deviceId) {
     juce::ScopedLock sl(lock_);
-    if (entries_.find(deviceId) == entries_.end())
+    if (entries_.find(deviceId) == entries_.end()) {
         entries_[deviceId] = std::make_unique<Entry>();
+    }
 }
 
 DeviceMeteringManager::RealtimeTap DeviceMeteringManager::getRealtimeTap(DeviceId deviceId) {
     juce::ScopedLock sl(lock_);
-    auto it = entries_.find(deviceId);
-    if (it == entries_.end()) {
-        entries_[deviceId] = std::make_unique<Entry>();
-        it = entries_.find(deviceId);
+    auto& entry = entries_[deviceId];
+    if (!entry)
+        entry = std::make_unique<Entry>();
+
+    if (!entry->realtimeTap) {
+        entry->realtimeTap = std::make_shared<RealtimeTapStorage>();
+        entry->realtimeTap->gainLinear.store(entry->gainLinear.load(std::memory_order_relaxed),
+                                             std::memory_order_relaxed);
     }
 
-    if (!it->second->realtimeTap)
-        it->second->realtimeTap = std::make_shared<RealtimeTapStorage>();
-
-    RealtimeTap tap;
-    tap.storage = it->second->realtimeTap;
-    tap.peakL = &tap.storage->peakL;
-    tap.peakR = &tap.storage->peakR;
-    tap.gainLinear = &tap.storage->gainLinear;
-    return tap;
+    auto storage = entry->realtimeTap;
+    return {storage, &storage->peakL, &storage->peakR, &storage->gainLinear};
 }
 
 void DeviceMeteringManager::setRackDirectLevels(RackId rackId, float peakL, float peakR) {
@@ -170,14 +159,28 @@ bool DeviceMeteringManager::getRackLatestLevels(RackId rackId, DeviceMeterData& 
 
 void DeviceMeteringManager::clear() {
     juce::ScopedLock sl(lock_);
-#ifdef AIDAW_HAS_TRACKTION
-    for (auto& [id, entry] : entries_) {
+    for (auto& [deviceId, entry] : entries_) {
         if (entry->clientRegistered)
             entry->measurer.removeClient(entry->client);
     }
-#endif
     entries_.clear();
     rackEntries_.clear();
+}
+
+DeviceMeteringManager* DeviceMeteringManager::getInstanceForEdit(te::Edit& edit) {
+    juce::ScopedLock sl(editMapLock_);
+    auto it = editMap_.find(&edit);
+    return it != editMap_.end() ? it->second : nullptr;
+}
+
+void DeviceMeteringManager::registerForEdit(te::Edit& edit, DeviceMeteringManager* mgr) {
+    juce::ScopedLock sl(editMapLock_);
+    editMap_[&edit] = mgr;
+}
+
+void DeviceMeteringManager::unregisterForEdit(te::Edit& edit) {
+    juce::ScopedLock sl(editMapLock_);
+    editMap_.erase(&edit);
 }
 
 }  // namespace aidaw

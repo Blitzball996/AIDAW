@@ -1,30 +1,96 @@
-add_library(aidaw_ai STATIC
-    AiEngine.cpp
-    MusicAgent.cpp
-    RouterAgent.cpp
-    VoiceInput.cpp
-    PromptParser.cpp
-    InstructionExecutor.cpp
-    AutomationAgent.cpp
-    AutomationParser.cpp
-    AutomationExecutor.cpp
-    CommandAgent.cpp
-    CompactParser.cpp
-    SoundDesignAgent.cpp
-    AgentManager.cpp
-    llm/LocalLlmClient.cpp
-    llm/CloudLlmClient.cpp
-    llm/RelayLlmClient.cpp
-    models/ModelManager.cpp
+# Agents - Simple in-process AI agent system
+# This provides a lightweight agent framework using JUCE threading
+
+set(AGENTS_SOURCES
+    agent_interface.hpp
+    agent_interface.cpp
+    agent_manager.hpp
+    agent_manager.cpp
+    simple_agent.hpp
+    simple_agent.cpp
+dsl_grammar.hpp
+    dsl_interpreter.hpp
+    dsl_interpreter.cpp
+    music_helpers.hpp
+    internal_plugins.hpp
+    compact_parser.hpp
+    compact_parser.cpp
+    instruction_executor.hpp
+    instruction_executor.cpp
+    llm_config_utils.hpp
+    llm_presets.hpp
+    llm_presets.cpp
+    command_agent.hpp
+    command_agent.cpp
+    music_agent.hpp
+    music_agent.cpp
+    automation_parser.hpp
+    automation_parser.cpp
+    automation_executor.hpp
+    automation_executor.cpp
+    automation_agent.hpp
+    automation_agent.cpp
+    router_agent.hpp
+    router_agent.cpp
+    controller_profile_agent.hpp
+    controller_profile_agent.cpp
+    llama_model_manager.hpp
+    llama_model_manager.cpp
+    llama_local_client.hpp
+    llama_local_client.cpp
+    llm_client_factory.hpp
+    model_downloader.hpp
+    model_downloader.cpp
+    daw_agent.hpp
+    daw_agent.cpp
+    four_osc_agent.hpp
+    four_osc_agent.cpp
+    four_osc_apply.hpp
+    four_osc_apply.cpp
+    faust_agent.hpp
+    faust_agent.cpp
+    device_ai_agent.hpp
+    sound_design_agent.hpp
+    sound_design_agent.cpp
+    coder_agent.hpp
+    coder_agent.cpp
+    mcp/MCPClient.hpp
+    mcp/MCPClient.cpp
+    mcp/MCPServerManager.hpp
+    mcp/MCPServerManager.cpp
 )
 
-target_include_directories(aidaw_ai PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(aidaw_ai PUBLIC
-    juce::juce_core
-    aidaw_utils
+# Create the agents library
+add_library(magda_agents STATIC ${AGENTS_SOURCES})
+
+# Link with JUCE for threading and utilities
+target_link_libraries(magda_agents
+    PUBLIC
+    magda_daw
+    PRIVATE
+    Threads::Threads
+    llama
+    ggml
 )
 
-if(AIDAW_ENABLE_LOCAL_LLM AND TARGET llama)
-    target_link_libraries(aidaw_ai PRIVATE llama)
-    target_compile_definitions(aidaw_ai PRIVATE AIDAW_HAS_LOCAL_LLM=1)
+# Include directories
+target_include_directories(magda_agents
+    PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../daw
+)
+
+# Set target properties
+set_target_properties(magda_agents PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+# Compiler warnings
+if(MSVC)
+    target_compile_options(magda_agents PRIVATE /W4)
+else()
+    target_compile_options(magda_agents PRIVATE -Wall -Wextra -Wpedantic)
 endif()

@@ -1,29 +1,29 @@
 #include "TrackController.hpp"
 
-namespace aidaw {
+#include "../core/TrackManager.hpp"
 
-#ifdef AIDAW_HAS_TRACKTION
+namespace aidaw {
 
 namespace {
 
-te::VolumeAndPanPlugin* getFaderPlugin(te::AudioTrack* track) {
-    if (!track)
-        return nullptr;
-    auto& plugins = track->pluginList;
-    for (int i = plugins.size() - 1; i >= 0; --i) {
-        if (auto* vp = dynamic_cast<te::VolumeAndPanPlugin*>(plugins[i])) {
-            bool onlyMetersAfter = true;
-            for (int j = i + 1; j < plugins.size(); ++j) {
-                if (!dynamic_cast<te::LevelMeterPlugin*>(plugins[j])) {
-                    onlyMetersAfter = false;
-                    break;
-                }
-            }
-            if (onlyMetersAfter)
-                return vp;
-        }
+te::InputDevice::MonitorMode toTeMonitorMode(InputMonitorMode mode) {
+    switch (mode) {
+        case InputMonitorMode::In:
+            return te::InputDevice::MonitorMode::on;
+        case InputMonitorMode::Auto:
+            return te::InputDevice::MonitorMode::automatic;
+        case InputMonitorMode::Off:
+        default:
+            return te::InputDevice::MonitorMode::off;
     }
-    return track->getVolumePlugin();
+}
+
+bool inputHasTarget(te::InputDeviceInstance& input, te::EditItemID targetID) {
+    for (auto existingTargetID : input.getTargets()) {
+        if (existingTargetID == targetID)
+            return true;
+    }
+    return false;
 }
 
 }  // namespace
@@ -44,19 +44,28 @@ te::AudioTrack* TrackController::getAudioTrack(TrackId trackId) const {
 te::AudioTrack* TrackController::createAudioTrack(TrackId trackId, const juce::String& name) {
     juce::ScopedLock lock(trackLock_);
 
+    // Check if track already exists
     auto it = trackMapping_.find(trackId);
     if (it != trackMapping_.end() && it->second != nullptr) {
         return it->second;
     }
 
+    // Create new track (must be done under lock to prevent race condition)
     auto insertPoint = te::TrackInsertPoint(nullptr, nullptr);
     auto trackPtr = edit_.insertNewAudioTrack(insertPoint, nullptr);
 
     te::AudioTrack* track = trackPtr.get();
     if (track) {
         track->setName(name);
-        track->getOutput().setOutputToDefaultDevice(false);
+
+        // Route track output to master/default output
+        track->getOutput().setOutputToDefaultDevice(false);  // false = audio (not MIDI)
+
+        // Register track mapping
         trackMapping_[trackId] = track;
+
+        DBG("TrackController: Created Tracktion AudioTrack for MAGDA track "
+            << trackId << ": " << name << " (routed to master)");
     }
 
     return track;
@@ -71,19 +80,24 @@ void TrackController::removeAudioTrack(TrackId trackId) {
         if (it != trackMapping_.end()) {
             track = it->second;
 
-            auto clientIt = meterClients_.find(trackId);
-            if (clientIt != meterClients_.end()) {
-                if (clientIt->second.measurer)
-                    clientIt->second.measurer->removeClient(clientIt->second.client);
-                meterClients_.erase(clientIt);
+            // Unregister meter client before removing track
+            {
+                auto clientIt = meterClients_.find(trackId);
+                if (clientIt != meterClients_.end()) {
+                    if (clientIt->second.measurer)
+                        clientIt->second.measurer->removeClient(clientIt->second.client);
+                    meterClients_.erase(clientIt);
+                }
             }
 
             trackMapping_.erase(it);
         }
     }
 
+    // Delete track from edit (expensive operation, done outside lock)
     if (track) {
         edit_.deleteTrack(track);
+        DBG("TrackController: Removed Tracktion AudioTrack for MAGDA track " << trackId);
     }
 }
 
@@ -98,6 +112,32 @@ te::AudioTrack* TrackController::ensureTrackMapping(TrackId trackId, const juce:
 // =============================================================================
 // Mixer Controls
 // =============================================================================
+
+// Find the track's fader VolumeAndPanPlugin (not a Utility instance).
+// The fader is the VolumeAndPanPlugin whose only successors are LevelMeterPlugins.
+// This distinguishes it from Utility plugins which are also VolumeAndPanPlugins.
+static te::VolumeAndPanPlugin* getFaderPlugin(te::AudioTrack* track) {
+    if (!track)
+        return nullptr;
+    auto& plugins = track->pluginList;
+    // Search from end — the fader should be the last VolumeAndPan before LevelMeter(s)
+    for (int i = plugins.size() - 1; i >= 0; --i) {
+        if (auto* vp = dynamic_cast<te::VolumeAndPanPlugin*>(plugins[i])) {
+            // Check that everything after this is a LevelMeterPlugin
+            bool onlyMetersAfter = true;
+            for (int j = i + 1; j < plugins.size(); ++j) {
+                if (!dynamic_cast<te::LevelMeterPlugin*>(plugins[j])) {
+                    onlyMetersAfter = false;
+                    break;
+                }
+            }
+            if (onlyMetersAfter)
+                return vp;
+        }
+    }
+    // Fallback to TE's default
+    return track->getVolumePlugin();
+}
 
 void TrackController::setTrackVolume(TrackId trackId, float volume) {
     auto* track = getAudioTrack(trackId);
@@ -145,98 +185,240 @@ float TrackController::getTrackPan(TrackId trackId) const {
 
 void TrackController::setTrackAudioOutput(TrackId trackId, const juce::String& destination) {
     auto* track = getAudioTrack(trackId);
-    if (!track)
+    if (!track) {
+        DBG("TrackController::setTrackAudioOutput - track not found: " << trackId);
         return;
+    }
 
     if (destination.isEmpty()) {
+        // Disable output by routing to nothing
+        if (!track->getOutput().getOutputDevice(false))
+            return;  // Already has no output
         track->getOutput().setOutputToDeviceID({});
     } else if (destination == "master") {
+        // Skip if already routed to default — avoids unnecessary graph rebuild
         if (track->getOutput().usesDefaultAudioOut())
             return;
-        track->getOutput().setOutputToDefaultDevice(false);
+        track->getOutput().setOutputToDefaultDevice(false);  // false = audio (not MIDI)
     } else if (destination.startsWith("track:")) {
+        // Route to another track (group or aux)
         TrackId targetId = destination.fromFirstOccurrenceOf("track:", false, false).getIntValue();
         auto* targetTrack = getAudioTrack(targetId);
         if (targetTrack) {
+            // Clear first to ensure TE detects the change even when the
+            // positional "track N" string happens to match the previous value
+            // (e.g., after tracks are added/removed and positions shift).
             track->getOutput().setOutputToDeviceID({});
             track->getOutput().setOutputToTrack(targetTrack);
         } else {
+            DBG("TrackController::setTrackAudioOutput - target track not found: trackId="
+                << trackId << " targetId=" << targetId << " — falling back to master");
             track->getOutput().setOutputToDefaultDevice(false);
         }
     } else {
+        // Route to specific output device
         track->getOutput().setOutputToDeviceID(destination);
     }
 }
 
 juce::String TrackController::getTrackAudioOutput(TrackId trackId) const {
     auto* track = getAudioTrack(trackId);
-    if (!track)
+    if (!track) {
         return {};
+    }
 
     auto& output = track->getOutput();
-    if (output.usesDefaultAudioOut())
-        return "master";
+    if (output.usesDefaultAudioOut()) {
+        return "master";  // Consistent with "master" keyword in setTrackAudioOutput
+    }
 
+    // Check if routed to another track
     if (auto* destTrack = output.getDestinationTrack()) {
+        // Find the MAGDA TrackId for this TE track
         juce::ScopedLock lock(trackLock_);
-        for (const auto& [id, teTrack] : trackMapping_) {
-            if (teTrack == destTrack)
-                return "track:" + juce::String(id);
+        for (const auto& [magdaId, teTrack] : trackMapping_) {
+            if (teTrack == destTrack) {
+                return "track:" + juce::String(magdaId);
+            }
         }
     }
 
+    // Return the output device ID for round-trip consistency
     return output.getOutputName();
+}
+
+void TrackController::setTrackMidiOutput(TrackId trackId, const juce::String& deviceId) {
+    // NOTE: TE has a single TrackOutput per track (shared audio+MIDI).
+    // We cannot use TrackOutput for independent MIDI routing — it would
+    // replace the audio output. MIDI routing will be handled via aux sends.
+    juce::ignoreUnused(trackId, deviceId);
 }
 
 void TrackController::setTrackAudioInput(TrackId trackId, const juce::String& deviceId) {
     auto* track = getAudioTrack(trackId);
-    if (!track)
+    if (!track) {
+        juce::Logger::writeToLog("[AudioInput] track not found: " + juce::String(trackId));
         return;
+    }
+
+    juce::Logger::writeToLog("[AudioInput] trackId=" + juce::String(trackId) + " deviceId='" +
+                             deviceId + "'");
 
     if (deviceId.isEmpty()) {
+        // Disable input - clear all assignments
         auto* playbackContext = edit_.getCurrentPlaybackContext();
         if (playbackContext) {
             for (auto* inputDeviceInstance : playbackContext->getAllInputs()) {
-                inputDeviceInstance->removeTarget(track->itemID, nullptr);
+                auto result = inputDeviceInstance->removeTarget(track->itemID, nullptr);
+                if (!result) {
+                    DBG("  -> Warning: Could not remove audio input target - "
+                        << result.getErrorMessage());
+                }
             }
         }
+        DBG("  -> Cleared audio input");
+    } else if (deviceId.startsWith("track:")) {
+        // Route another track's audio output as input (resampling)
+        TrackId sourceTrackId =
+            deviceId.fromFirstOccurrenceOf("track:", false, false).getIntValue();
+        auto* sourceTrack = getAudioTrack(sourceTrackId);
+        if (sourceTrack) {
+            auto* dest =
+                te::assignTrackAsInput(*track, *sourceTrack, te::InputDevice::trackWaveDevice);
+            if (dest) {
+                dest->recordEnabled = false;  // Arming happens separately
+                DBG("  -> Assigned track " << sourceTrackId << " as audio input");
+            } else {
+                DBG("  -> Warning: assignTrackAsInput returned null");
+            }
+        } else {
+            DBG("  -> Source track not found: " << sourceTrackId);
+        }
     } else {
+        // Enable input - route default or specific device to this track
         auto* playbackContext = edit_.getCurrentPlaybackContext();
         if (playbackContext) {
             auto allInputs = playbackContext->getAllInputs();
 
             if (deviceId == "default") {
+                // Use first available audio (non-MIDI) input device
                 for (auto* input : allInputs) {
                     if (dynamic_cast<te::MidiInputDevice*>(&input->owner))
                         continue;
                     auto result = input->setTarget(track->itemID, false, nullptr);
                     if (result.has_value()) {
-                        (*result)->recordEnabled = false;
+                        (*result)->recordEnabled = false;  // Don't auto-enable recording
+                        juce::Logger::writeToLog("[AudioInput] routed default '" +
+                                                 input->owner.getName() + "' to track");
                         break;
                     }
                 }
             } else {
+                // Strip "stereo:" prefix if present — routing resolves to same device
                 auto resolvedName = deviceId.startsWith("stereo:")
                                         ? deviceId.fromFirstOccurrenceOf("stereo:", false, false)
                                         : deviceId;
+                // Find specific device by name and route it
+                bool found = false;
                 for (auto* inputDeviceInstance : allInputs) {
+                    juce::Logger::writeToLog("[AudioInput] checking device '" +
+                                             inputDeviceInstance->owner.getName() + "' against '" +
+                                             resolvedName + "'");
                     if (inputDeviceInstance->owner.getName() == resolvedName) {
                         auto result = inputDeviceInstance->setTarget(track->itemID, false, nullptr);
-                        if (result.has_value())
+                        if (result.has_value()) {
                             (*result)->recordEnabled = false;
+                            juce::Logger::writeToLog("[AudioInput] routed '" + resolvedName +
+                                                     "' to track " + juce::String(trackId));
+                        } else {
+                            juce::Logger::writeToLog("[AudioInput] setTarget FAILED for '" +
+                                                     resolvedName + "'");
+                        }
+                        found = true;
                         break;
                     }
+                }
+                if (!found) {
+                    juce::Logger::writeToLog("[AudioInput] device '" + resolvedName +
+                                             "' NOT FOUND in " + juce::String(allInputs.size()) +
+                                             " inputs");
                 }
             }
         }
     }
 }
 
+bool TrackController::setSessionSlotAudioRecordingTarget(TrackId trackId, int sceneIndex,
+                                                         bool enabled) {
+    auto* track = getAudioTrack(trackId);
+    auto* playbackContext = edit_.getCurrentPlaybackContext();
+    auto* trackInfo = TrackManager::getInstance().getTrack(trackId);
+    if (!track || !playbackContext || !trackInfo || sceneIndex < 0)
+        return false;
+
+    edit_.getSceneList().ensureNumberOfScenes(sceneIndex + 1);
+    track->getClipSlotList().ensureNumberOfSlots(sceneIndex + 1);
+
+    auto slots = track->getClipSlotList().getClipSlots();
+    if (sceneIndex >= slots.size() || slots[sceneIndex] == nullptr)
+        return false;
+
+    auto* slot = slots[sceneIndex];
+    bool changedRouting = false;
+    bool armedSlot = false;
+    const auto teMonitorMode = toTeMonitorMode(trackInfo->inputMonitor);
+
+    for (auto* inputDeviceInstance : playbackContext->getAllInputs()) {
+        if (dynamic_cast<te::MidiInputDevice*>(&inputDeviceInstance->owner) != nullptr)
+            continue;
+
+        const bool hasTrackTarget = inputHasTarget(*inputDeviceInstance, track->itemID);
+        const bool hasSlotTarget = inputHasTarget(*inputDeviceInstance, slot->itemID);
+
+        if (enabled) {
+            if (!hasTrackTarget)
+                continue;
+
+            if (!inputDeviceInstance->owner.isEnabled())
+                inputDeviceInstance->owner.setEnabled(true);
+
+            inputDeviceInstance->owner.setMonitorMode(teMonitorMode);
+
+            if (!hasSlotTarget) {
+                auto result = inputDeviceInstance->setTarget(slot->itemID, false, nullptr);
+                if (!result.has_value())
+                    continue;
+                changedRouting = true;
+            }
+
+            inputDeviceInstance->setRecordingEnabled(track->itemID, false);
+            inputDeviceInstance->setRecordingEnabled(slot->itemID, true);
+            armedSlot = true;
+        } else {
+            if (hasSlotTarget) {
+                inputDeviceInstance->setRecordingEnabled(slot->itemID, false);
+                if (inputDeviceInstance->removeTarget(slot->itemID, nullptr))
+                    changedRouting = true;
+            }
+
+            if (hasTrackTarget)
+                inputDeviceInstance->setRecordingEnabled(track->itemID, trackInfo->recordArmed);
+        }
+    }
+
+    if (changedRouting && playbackContext->isPlaybackGraphAllocated())
+        playbackContext->reallocate();
+
+    return enabled ? armedSlot : true;
+}
+
 juce::String TrackController::getTrackAudioInput(TrackId trackId) const {
     auto* track = getAudioTrack(trackId);
-    if (!track)
+    if (!track) {
         return {};
+    }
 
+    // Check if any input device is routed to this track
     auto* playbackContext = edit_.getCurrentPlaybackContext();
     if (playbackContext) {
         auto allInputs = playbackContext->getAllInputs();
@@ -245,15 +427,29 @@ juce::String TrackController::getTrackAudioInput(TrackId trackId) const {
             auto targets = inputDeviceInstance->getTargets();
             for (auto targetID : targets) {
                 if (targetID == track->itemID) {
-                    if (i == 0)
+                    // Check if this is a track-as-input (resampling) device
+                    if (inputDeviceInstance->owner.isTrackDevice() &&
+                        inputDeviceInstance->owner.getDeviceType() ==
+                            te::InputDevice::trackWaveDevice) {
+                        // Find the source MAGDA TrackId for this track input device
+                        juce::ScopedLock lock(trackLock_);
+                        for (const auto& [magdaId, teTrack] : trackMapping_) {
+                            if (&teTrack->getWaveInputDevice() == &inputDeviceInstance->owner) {
+                                return "track:" + juce::String(magdaId);
+                            }
+                        }
+                    }
+                    // Return "default" if this is the first input (for round-trip consistency)
+                    if (i == 0) {
                         return "default";
+                    }
                     return inputDeviceInstance->owner.getName();
                 }
             }
         }
     }
 
-    return {};
+    return {};  // No input assigned (matches empty string from setTrackAudioInput)
 }
 
 // =============================================================================
@@ -296,14 +492,17 @@ void TrackController::addMeterClient(TrackId trackId, te::LevelMeterPlugin* leve
     auto [it, inserted] = meterClients_.try_emplace(trackId);
 
     if (inserted) {
+        // New entry — register with the measurer
         it->second.measurer = measurer;
         measurer->addClient(it->second.client);
     } else if (it->second.measurer != measurer) {
+        // Measurer changed (e.g. plugin was recreated) — re-register
         if (it->second.measurer)
             it->second.measurer->removeClient(it->second.client);
         it->second.measurer = measurer;
         measurer->addClient(it->second.client);
     }
+    // else: same measurer, already registered — no-op
 }
 
 void TrackController::removeMeterClient(TrackId trackId) {
@@ -321,22 +520,5 @@ void TrackController::withMeterClients(
     juce::ScopedLock lock(trackLock_);
     callback(meterClients_);
 }
-
-#else  // !AIDAW_HAS_TRACKTION
-
-TrackController::TrackController() {}
-
-void TrackController::setTrackVolume(TrackId, float) {}
-float TrackController::getTrackVolume(TrackId) const { return 1.0f; }
-void TrackController::setTrackPan(TrackId, float) {}
-float TrackController::getTrackPan(TrackId) const { return 0.0f; }
-void TrackController::setTrackAudioOutput(TrackId, const juce::String&) {}
-juce::String TrackController::getTrackAudioOutput(TrackId) const { return {}; }
-void TrackController::setTrackAudioInput(TrackId, const juce::String&) {}
-juce::String TrackController::getTrackAudioInput(TrackId) const { return {}; }
-std::vector<TrackId> TrackController::getAllTrackIds() const { return {}; }
-void TrackController::clearAllMappings() {}
-
-#endif  // AIDAW_HAS_TRACKTION
 
 }  // namespace aidaw

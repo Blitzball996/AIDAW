@@ -8,7 +8,6 @@
 namespace aidaw {
 
 class AudioBridge;
-class MidiBridge;
 
 /**
  * @brief Maps QWERTY keyboard keys to MIDI notes.
@@ -22,22 +21,36 @@ class MidiBridge;
  *   White keys: A S D F G H J   K L
  *   Octave:     Z (down) / X (up)
  */
+class MidiBridge;
+
 class QwertyMidiKeyboard : public juce::KeyListener {
   public:
     QwertyMidiKeyboard(AudioBridge& bridge, MidiBridge* midiBridge);
     ~QwertyMidiKeyboard() override;
 
     void setEnabled(bool enabled);
-    bool isEnabled() const { return enabled_; }
+    bool isEnabled() const {
+        return enabled_;
+    }
 
-    int getBaseOctave() const { return baseOctave_; }
-    void setBaseOctave(int octave) { baseOctave_ = juce::jlimit(0, 8, octave); }
+    int getBaseOctave() const {
+        return baseOctave_;
+    }
+    void setBaseOctave(int octave) {
+        baseOctave_ = juce::jlimit(0, 8, octave);
+    }
 
-    void setVelocity(int vel) { velocity_ = juce::jlimit(1, 127, vel); }
-    int getVelocity() const { return velocity_; }
+    void setVelocity(int vel) {
+        velocity_ = juce::jlimit(1, 127, vel);
+    }
+    int getVelocity() const {
+        return velocity_;
+    }
 
     /** Snapshot of currently held notes, for UI visualisation. */
-    std::unordered_set<int> getHeldNotes() const { return heldNotes_; }
+    std::unordered_set<int> getHeldNotes() const {
+        return heldNotes_;
+    }
 
     // juce::KeyListener
     bool keyPressed(const juce::KeyPress& key, juce::Component* originatingComponent) override;

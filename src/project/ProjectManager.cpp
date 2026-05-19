@@ -5,13 +5,12 @@
 
 #include <algorithm>
 
-#ifdef AIDAW_HAS_DAW_ENGINE
 #include "../core/AutomationManager.hpp"
 #include "../core/ClipManager.hpp"
+#include "../core/TempoUtils.hpp"
 #include "../core/TrackManager.hpp"
-#endif
-
 #include "serialization/ProjectSerializer.hpp"
+#include "version.hpp"
 
 namespace aidaw {
 
@@ -19,7 +18,7 @@ namespace aidaw {
 static const char* const kRecordingsDir = "recordings";
 static const char* const kRendersDir = "renders";
 static const char* const kBouncesDir = "bounces";
-static const char* const kTempRootDir = "AIDAW";
+static const char* const kTempRootDir = "MAGDA";
 static const char* const kTempPrefix = "UnsavedProject_";
 static constexpr int kStaleTempDays = 7;
 static const char* const kAutosaveExtension = ".autosave";
@@ -56,7 +55,7 @@ ProjectManager& ProjectManager::getInstance() {
 ProjectManager::ProjectManager() {
     // Initialize with default project info
     currentProject_.name = "Untitled";
-    currentProject_.version = kAidawVersion;
+    currentProject_.version = MAGDA_VERSION;
 
     // Create temp media directory so recordings/renders have a home even before
     // the user explicitly creates or saves a project.
@@ -88,16 +87,14 @@ bool ProjectManager::newProject() {
     }
 
     // Clear all project content from singleton managers
-#ifdef AIDAW_HAS_DAW_ENGINE
     TrackManager::getInstance().clearAllTracks();
     ClipManager::getInstance().clearAllClips();
     AutomationManager::getInstance().clearAll();
-#endif
 
     // Reset project state
     currentProject_ = ProjectInfo();
     currentProject_.name = "Untitled";
-    currentProject_.version = kAidawVersion;
+    currentProject_.version = MAGDA_VERSION;
     currentFile_ = juce::File();
     isProjectOpen_ = true;
 
@@ -355,11 +352,9 @@ bool ProjectManager::closeProject() {
     deleteAutosaveFile();
 
     // Clear all project content from singleton managers
-#ifdef AIDAW_HAS_DAW_ENGINE
     TrackManager::getInstance().clearAllTracks();
     ClipManager::getInstance().clearAllClips();
     AutomationManager::getInstance().clearAll();
-#endif
 
     // Reset state
     currentProject_ = ProjectInfo();
@@ -544,7 +539,6 @@ void ProjectManager::migrateMediaFiles(const juce::File& oldDir, const juce::Fil
     }
 
     // Update clip audio paths that reference the old media directory
-#ifdef AIDAW_HAS_DAW_ENGINE
     auto& clipManager = ClipManager::getInstance();
     auto updateClipPaths = [&](const std::vector<ClipInfo>& clips) {
         for (const auto& clipInfo : clips) {
@@ -565,7 +559,6 @@ void ProjectManager::migrateMediaFiles(const juce::File& oldDir, const juce::Fil
 
     if (!updatedClipIds.empty())
         clipManager.forceNotifyMultipleClipPropertiesChanged(updatedClipIds);
-#endif  // AIDAW_HAS_DAW_ENGINE
 
     // Remove old temp directory if it's empty or under the temp root
     auto tempRoot =

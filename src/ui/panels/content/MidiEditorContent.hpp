@@ -1,0 +1,211 @@
+#pragma once
+
+#include <limits>
+#include <memory>
+#include <vector>
+
+#include "PanelContent.hpp"
+#include "core/ClipManager.hpp"
+#include "ui/state/TimelineController.hpp"
+#include "ui/state/TimelineState.hpp"
+
+namespace aidaw {
+class TimeRuler;
+class VelocityLaneComponent;
+class MidiDrawerComponent;
+}  // namespace aidaw
+
+namespace aidaw::daw::ui {
+
+/**
+ * @brief Custom viewport that fires a callback on scroll and repaints registered components.
+ *
+ * Replaces the separate ScrollNotifyingViewport and DrumGridScrollViewport classes.
+ */
+class MidiEditorViewport : public juce::Viewport {
+  public:
+    std::function<void(int, int)> onScrolled;
+    std::vector<juce::Component*> componentsToRepaint;
+
+    bool keyPressed(const juce::KeyPress& key) override {
+        // Alt/Option + arrow keys: allow viewport scrolling
+        // Plain arrow keys: don't handle, let grid component use them for note movement
+        if (key.getKeyCode() == juce::KeyPress::upKey ||
+            key.getKeyCode() == juce::KeyPress::downKey ||
+            key.getKeyCode() == juce::KeyPress::leftKey ||
+            key.getKeyCode() == juce::KeyPress::rightKey) {
+            if (key.getModifiers().isAltDown())
+                return juce::Viewport::keyPressed(key);
+            return false;
+        }
+        return juce::Viewport::keyPressed(key);
+    }
+
+    void visibleAreaChanged(const juce::Rectangle<int>& newVisibleArea) override {
+        juce::Viewport::visibleAreaChanged(newVisibleArea);
+        if (onScrolled)
+            onScrolled(getViewPositionX(), getViewPositionY());
+        for (auto* c : componentsToRepaint)
+            if (c)
+                c->repaint();
+    }
+
+    void scrollBarMoved(juce::ScrollBar* scrollBar, double newRangeStart) override {
+        juce::Viewport::scrollBarMoved(scrollBar, newRangeStart);
+        for (auto* c : componentsToRepaint)
+            if (c)
+                c->repaint();
+    }
+};
+
+/**
+ * @brief Shared base class for MIDI editor content panels (PianoRoll and DrumGrid).
+ *
+ * Provides common zoom, scroll, TimeRuler, and listener management.
+ * Subclasses implement their own grid component, layout, and editor-specific features.
+ *
+ * Inheritance hierarchy:
+ *   PanelContent
+ *     -> MidiEditorContent (shared zoom, scroll, TimeRuler, listeners)
+ *          -> PianoRollContent (keyboard, velocity, chord row, multi-clip)
+ *          -> DrumGridClipContent (row labels, pad model, drum grid plugin)
+ */
+class MidiEditorContent : public PanelContent,
+                          public aidaw::ClipManagerListener,
+                          public aidaw::TimelineStateListener {
+  public:
+    MidiEditorContent();
+    ~MidiEditorContent() override;
+
+    aidaw::ClipId getEditingClipId() const {
+        return editingClipId_;
+    }
+
+    bool isRelativeTimeMode() const {
+        return relativeTimeMode_;
+    }
+
+    // Timeline mode
+    virtual void setRelativeTimeMode(bool relative);
+
+    // Per-clip grid settings
+    void applyClipGridSettings();
+    void setGridSettingsFromUI(bool autoGrid, int numerator, int denominator);
+    void setSnapEnabledFromUI(bool enabled);
+
+    // ClipManagerListener — default implementations
+    void clipsChanged() override;
+    void clipPropertyChanged(aidaw::ClipId clipId) override;
+
+    // TimelineStateListener — shared implementation
+    void timelineStateChanged(const aidaw::TimelineState& state,
+                              aidaw::ChangeFlags changes) override;
+
+  protected:
+    // --- Shared state ---
+    aidaw::ClipId editingClipId_ = aidaw::INVALID_CLIP_ID;
+    double horizontalZoom_ = 50.0;  // pixels per beat
+    bool relativeTimeMode_ = false;
+    double lastScrolledPlacementStartBeat_ = std::numeric_limits<double>::quiet_NaN();
+
+    // --- Grid resolution (from BottomPanel grid controls) ---
+    double gridResolutionBeats_ = 0.25;  // Current grid resolution in beats (default 1/16)
+    bool snapEnabled_ = true;            // Whether snap-to-grid is active
+
+    double getGridResolutionBeats() const {
+        return gridResolutionBeats_;
+    }
+    double snapBeatToGrid(double beat) const;
+    void updateGridResolution();
+
+    // --- Layout constants ---
+    static constexpr int RULER_HEIGHT = 48;
+    static constexpr int GRID_LEFT_PADDING = 2;
+    static constexpr double MIN_HORIZONTAL_ZOOM = 10.0;
+    static constexpr double MAX_HORIZONTAL_ZOOM = 500.0;
+    static constexpr int DEFAULT_DRAWER_HEIGHT = 100;
+    static constexpr int MIN_DRAWER_HEIGHT = 60;
+    static constexpr int MAX_DRAWER_HEIGHT = 400;
+    static constexpr int VELOCITY_LANE_HEIGHT = 80;
+    static constexpr int VELOCITY_HEADER_HEIGHT = 20;
+    int drawerHeight_ = DEFAULT_DRAWER_HEIGHT;
+
+    // --- Components (accessible to subclasses) ---
+    std::unique_ptr<MidiEditorViewport> viewport_;
+    std::unique_ptr<aidaw::TimeRuler> timeRuler_;
+    std::unique_ptr<aidaw::VelocityLaneComponent> velocityLane_;
+    std::unique_ptr<aidaw::MidiDrawerComponent> midiDrawer_;
+
+    // --- Velocity lane state (static so it persists across editor switches) ---
+    static bool velocityDrawerOpen_;
+    void setVelocityDrawerVisible(bool visible);
+    bool isVelocityDrawerVisible() const {
+        return velocityDrawerOpen_;
+    }
+
+    // --- Loop drag state (visual preview during drag, commit on mouseUp) ---
+    bool draggingLoopRegion_ = false;
+    double previewLoopStartBeats_ = 0.0;
+    double previewLoopLengthBeats_ = 0.0;
+
+    // --- Shared zoom methods ---
+    void performAnchorPointZoom(double newZoom, double anchorTime, int anchorScreenX);
+    void performWheelZoom(double zoomFactor, int mouseXInViewport);
+    void zoomToTimeRange(double startTime, double endTime);
+
+    // --- Shared TimeRuler method (virtual for subclass extension) ---
+    virtual void updateTimeRuler();
+    void scrollToClipStartForTimeMode();
+
+    // --- Pure virtual methods for subclasses ---
+    virtual int getLeftPanelWidth() const = 0;
+    virtual void updateGridSize() = 0;
+    virtual void setGridPixelsPerBeat(double ppb) = 0;
+    virtual void setGridPlayheadPosition(double position) = 0;
+
+    // --- Edit cursor (subclass must forward to its grid component) ---
+    virtual void setGridEditCursorPosition(double positionSeconds, bool visible) = 0;
+
+    // --- Optional virtual hooks ---
+    virtual void onScrollPositionChanged(int /*scrollX*/, int /*scrollY*/) {}
+    virtual void onGridResolutionChanged() {}
+    virtual void updateGridLoopRegion() {}
+    virtual void setGridPhasePreview(double /*beats*/, bool /*active*/) {}
+
+    // --- Velocity lane methods (legacy, used by velocity-only path) ---
+    void setupVelocityLane();
+    virtual void updateVelocityLane();
+    virtual void onVelocityEdited();
+    void setVelocityLaneSelectedNotes(const std::vector<size_t>& indices);
+
+    // --- MIDI drawer methods (tabbed: velocity + CC + pitchbend) ---
+    void setupMidiDrawer();
+    virtual void updateMidiDrawer();
+
+    // Helper to get current drawer height
+    int getDrawerHeight() const {
+        return velocityDrawerOpen_ ? drawerHeight_ : 0;
+    }
+
+    // --- Edit cursor (local to MIDI editor, independent from arrangement) ---
+    void setLocalEditCursor(double positionSeconds);
+    double localEditCursorPosition_ = -1.0;  // seconds, -1 = hidden
+    bool editCursorBlinkVisible_ = true;
+
+    // Inner timer for edit cursor blink (avoids juce::Timer diamond with subclasses)
+    class BlinkTimer : public juce::Timer {
+      public:
+        std::function<void()> callback;
+        void timerCallback() override {
+            if (callback)
+                callback();
+        }
+    };
+    BlinkTimer blinkTimer_;
+
+  public:
+    // Callback for BottomPanel to update num/den display when auto-grid changes
+    std::function<void(int numerator, int denominator)> onAutoGridDisplayChanged;
+};
+
+}  // namespace aidaw::daw::ui

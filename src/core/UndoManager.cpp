@@ -2,6 +2,10 @@
 
 namespace aidaw {
 
+// ============================================================================
+// UndoManager Implementation
+// ============================================================================
+
 UndoManager& UndoManager::getInstance() {
     static UndoManager instance;
     return instance;
@@ -10,64 +14,90 @@ UndoManager& UndoManager::getInstance() {
 UndoManager::UndoManager() = default;
 
 void UndoManager::executeCommand(std::unique_ptr<UndoableCommand> command) {
-    if (!command)
+    if (!command) {
+        DBG("📝 UNDO: executeCommand called with null command!");
         return;
+    }
 
+    // Execute the command
     command->execute();
 
+    // If in compound operation, collect commands instead of pushing to stack
     if (compoundDepth_ > 0) {
         compoundCommands_.push_back(std::move(command));
         return;
     }
 
+    // Check if we can merge with the previous command
     if (!undoStack_.empty() && undoStack_.back()->canMergeWith(command.get())) {
         undoStack_.back()->mergeWith(command.get());
     } else {
+        // Add to undo stack
         undoStack_.push_back(std::move(command));
         trimUndoStack();
     }
 
+    // Clear redo stack (new action invalidates redo history)
     redoStack_.clear();
+
     notifyListeners();
 }
 
 bool UndoManager::undo() {
-    if (undoStack_.empty())
+    if (undoStack_.empty()) {
         return false;
+    }
 
+    // Pop from undo stack
     auto command = std::move(undoStack_.back());
     undoStack_.pop_back();
 
+    DBG("📝 UNDO: Undoing '" << command->getDescription() << "'");
+
+    // Undo the command
     command->undo();
 
+    // Push to redo stack
     redoStack_.push_back(std::move(command));
+
     notifyListeners();
+
     return true;
 }
 
 bool UndoManager::redo() {
-    if (redoStack_.empty())
+    if (redoStack_.empty()) {
         return false;
+    }
 
+    // Pop from redo stack
     auto command = std::move(redoStack_.back());
     redoStack_.pop_back();
 
+    DBG("📝 UNDO: Redoing '" << command->getDescription() << "'");
+
+    // Re-execute the command
     command->execute();
 
+    // Push to undo stack
     undoStack_.push_back(std::move(command));
+
     notifyListeners();
+
     return true;
 }
 
 juce::String UndoManager::getUndoDescription() const {
-    if (undoStack_.empty())
+    if (undoStack_.empty()) {
         return {};
+    }
     return undoStack_.back()->getDescription();
 }
 
 juce::String UndoManager::getRedoDescription() const {
-    if (redoStack_.empty())
+    if (redoStack_.empty()) {
         return {};
+    }
     return redoStack_.back()->getDescription();
 }
 
@@ -88,20 +118,26 @@ void UndoManager::beginCompoundOperation(const juce::String& description) {
 }
 
 void UndoManager::endCompoundOperation() {
-    if (compoundDepth_ <= 0)
+    if (compoundDepth_ <= 0) {
         return;
+    }
 
     compoundDepth_--;
 
     if (compoundDepth_ == 0 && !compoundCommands_.empty()) {
+        // Create compound command and add to undo stack
         auto compound =
             std::make_unique<CompoundCommand>(compoundDescription_, std::move(compoundCommands_));
         undoStack_.push_back(std::move(compound));
         trimUndoStack();
 
+        // Clear redo stack
         redoStack_.clear();
+
         compoundCommands_.clear();
         notifyListeners();
+
+        DBG("📝 UNDO: Completed compound operation '" << compoundDescription_ << "'");
     }
 }
 
@@ -127,25 +163,31 @@ void UndoManager::trimUndoStack() {
     }
 }
 
-// CompoundCommand
+// ============================================================================
+// CompoundCommand Implementation
+// ============================================================================
 
 CompoundCommand::CompoundCommand(const juce::String& description,
                                  std::vector<std::unique_ptr<UndoableCommand>> commands)
     : description_(description), commands_(std::move(commands)) {}
 
 void CompoundCommand::execute() {
+    // Execute all commands in order
     for (auto& cmd : commands_) {
         cmd->execute();
     }
 }
 
 void CompoundCommand::undo() {
+    // Undo all commands in reverse order
     for (auto it = commands_.rbegin(); it != commands_.rend(); ++it) {
         (*it)->undo();
     }
 }
 
-// CompoundOperationScope
+// ============================================================================
+// CompoundOperationScope Implementation
+// ============================================================================
 
 CompoundOperationScope::CompoundOperationScope(const juce::String& description) {
     UndoManager::getInstance().beginCompoundOperation(description);

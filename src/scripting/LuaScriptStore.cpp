@@ -1,25 +1,12 @@
-#include "LuaScriptStore.hpp"
+#include "magda/scripting/LuaScriptStore.hpp"
 
 #include <algorithm>
 
-// TODO: Port AppPaths from magda-core or provide AIDAW equivalent.
-// For now, a local helper computes the scripts directory.
+#include "magda/daw/core/AppPaths.hpp"
 
 namespace aidaw::scripting {
 
-namespace {
-
-// Stub: returns the per-user AIDAW controller scripts directory.
-// Replace with actual AIDAW paths utility once ported.
-juce::File controllerScriptsDir() {
-    auto appData = juce::File::getSpecialLocation(
-        juce::File::userApplicationDataDirectory);
-    return appData.getChildFile("AIDAW").getChildFile("Scripts").getChildFile("Controllers");
-}
-
-}  // namespace
-
-LuaScriptStore::LuaScriptStore() : root_(controllerScriptsDir()) {}
+LuaScriptStore::LuaScriptStore() : root_(aidaw::paths::controllerScriptsDir()) {}
 
 LuaScriptStore::LuaScriptStore(const juce::File& root) : root_(root) {}
 
@@ -35,7 +22,7 @@ std::vector<juce::File> LuaScriptStore::enumerate() const {
     if (!root_.isDirectory())
         return out;
 
-    auto found = root_.findChildFiles(juce::File::findFiles, false, "*.lua");
+    auto found = root_.findChildFiles(juce::File::findFiles, /*searchRecursively*/ false, "*.lua");
     out.reserve(static_cast<size_t>(found.size()));
     for (auto& f : found)
         out.push_back(f);

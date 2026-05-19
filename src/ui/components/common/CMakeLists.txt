@@ -1,0 +1,31 @@
+target_sources(magda_daw_app PRIVATE
+    RampCurveDisplay.cpp
+    NoteSlicePopup.cpp
+    TimeBendPopup.cpp
+    SvgButton.cpp
+    QwertyKeyboardPopup.cpp
+    IconSelector.cpp
+    ZoomControls.cpp
+    LayoutDebugPanel.cpp
+    MixerDebugPanel.cpp
+    GridOverlayComponent.cpp
+    LinkableTextSlider.cpp
+    Toast.cpp
+    ValueLabelControl.cpp
+    DraggableValueLabel.cpp
+    BarsBeatsTicksLabel.cpp
+    NoteSlicePopup.hpp
+    SvgButton.hpp
+    IconSelector.hpp
+    ZoomControls.hpp
+    ModeSwitcher.hpp
+    LayoutDebugPanel.hpp
+    MixerDebugPanel.hpp
+    GridOverlayComponent.hpp
+    LinkableTextSlider.hpp
+    ValueLabelControl.hpp
+    DraggableValueLabel.hpp
+    BarsBeatsTicksLabel.hpp
+)
+
+add_subdirectory(curve)

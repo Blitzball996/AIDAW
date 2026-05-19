@@ -1,54 +1,207 @@
 #pragma once
 
-#include <juce_gui_extra/juce_gui_extra.h>
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <memory>
+#include <vector>
+
+#include "../../../utils/ScopedListener.hpp"
+#include "../../layout/LayoutConfig.hpp"
+#include "../../state/TimelineController.hpp"
+#include "LoopMarkerInteraction.hpp"
+#include "core/TempoUtils.hpp"
 
 namespace aidaw {
 
-class TimelineComponent : public juce::Component {
-public:
-    void paint(juce::Graphics& g) override {
-        g.fillAll(juce::Colour(0xff1a1a2e));
-        drawRuler(g);
+// Forward declaration
+class TimelineController;
+
+// TimeDisplayMode and ArrangementSection are now defined in TimelineState.hpp
+
+class TimelineComponent : public juce::Component, public TimelineStateListener {
+  public:
+    TimelineComponent();
+    ~TimelineComponent() override;
+
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+    // TimelineStateListener implementation
+    void timelineStateChanged(const TimelineState& state, ChangeFlags changes) override;
+
+    // Set the controller reference (called by MainView after construction)
+    void setController(TimelineController* controller);
+    TimelineController* getController() const {
+        return timelineListener_.get();
     }
 
-    void setPixelsPerBeat(double ppb) { pixelsPerBeat = ppb; repaint(); }
-    void setScrollOffset(double beats) { scrollOffset = beats; repaint(); }
-    void setTempo(double bpm) { tempo = bpm; repaint(); }
+    // Timeline controls
+    void setTimelineLength(double lengthInSeconds);
+    void setPlayheadPosition(double position);
+    void setZoom(double pixelsPerSecond);
+    void setViewportWidth(int width);  // For calculating minimum zoom
 
-private:
-    double pixelsPerBeat = 20.0;
-    double scrollOffset = 0.0;
-    double tempo = 120.0;
-
-    void drawRuler(juce::Graphics& g) {
-        int h = getHeight();
-        double beatW = pixelsPerBeat;
-        g.setFont(10.0f);
-
-        for (double b = scrollOffset; (b - scrollOffset) * beatW < getWidth(); b += 1.0) {
-            int x = (int)((b - scrollOffset) * beatW);
-            bool isBar = ((int)b % 4 == 0);
-
-            if (isBar) {
-                g.setColour(juce::Colours::white.withAlpha(0.7f));
-                g.drawVerticalLine(x, 0.0f, (float)h);
-                int barNum = (int)(b / 4.0) + 1;
-                g.drawText(juce::String(barNum), x + 2, 0, 30, 12, juce::Justification::left);
-            } else {
-                g.setColour(juce::Colour(0xff3d3d5c));
-                g.drawVerticalLine(x, (float)(h / 2), (float)h);
-            }
-        }
+    // Time display mode
+    void setTimeDisplayMode(TimeDisplayMode mode);
+    TimeDisplayMode getTimeDisplayMode() const {
+        return displayMode;
     }
-};
 
-class TimeRuler : public juce::Component {
-public:
-    void paint(juce::Graphics& g) override {
-        g.fillAll(juce::Colour(0xff252540));
-        g.setColour(juce::Colour(0xff3d3d5c));
-        g.drawLine(0, (float)getHeight(), (float)getWidth(), (float)getHeight());
+    // Tempo settings
+    void setTempo(double bpm);
+    double getTempo() const {
+        return tempoBPM;
     }
+    void setTimeSignature(int numerator, int denominator);
+    int getTimeSignatureNumerator() const {
+        return timeSignatureNumerator;
+    }
+    int getTimeSignatureDenominator() const {
+        return timeSignatureDenominator;
+    }
+
+    // Conversion helpers
+    double timeToBars(double timeInSeconds) const;
+    double barsToTime(double bars) const;
+    juce::String formatTimePosition(double timeInSeconds) const;
+
+    // Mouse interaction
+    void mouseDown(const juce::MouseEvent& event) override;
+    void mouseMove(const juce::MouseEvent& event) override;
+    void mouseDrag(const juce::MouseEvent& event) override;
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
+    void mouseUp(const juce::MouseEvent& event) override;
+    void mouseWheelMove(const juce::MouseEvent& event,
+                        const juce::MouseWheelDetails& wheel) override;
+
+    // Arrangement section management
+    void addSection(const juce::String& name, double startTime, double endTime,
+                    juce::Colour colour = juce::Colours::blue);
+    void removeSection(int index);
+    void clearSections();
+
+    // Arrangement locking
+    void setArrangementLocked(bool locked) {
+        arrangementLocked = locked;
+    }
+    bool isArrangementLocked() const {
+        return arrangementLocked;
+    }
+
+    // Loop region management
+    void setLoopRegion(double startTime, double endTime);
+    void clearLoopRegion();
+    bool isLoopEnabled() const {
+        return loopInteraction_.isEnabled();
+    }
+    void setLoopEnabled(bool enabled);
+    double getLoopStartTime() const {
+        return loopInteraction_.getStartTime();
+    }
+    double getLoopEndTime() const {
+        return loopInteraction_.getEndTime();
+    }
+
+    // Snap to grid
+    void setSnapEnabled(bool enabled) {
+        snapEnabled = enabled;
+    }
+    bool isSnapEnabled() const {
+        return snapEnabled;
+    }
+    double snapTimeToGrid(double time) const;
+    double getSnapInterval() const;  // Returns current snap interval based on zoom and display mode
+
+    // Time selection (for visual feedback in ruler area)
+    void setTimeSelection(double startTime, double endTime);
+    void clearTimeSelection();
+
+    // Callback for playhead position changes
+    std::function<void(double)> onPlayheadPositionChanged;
+    std::function<void(int, const ArrangementSection&)> onSectionChanged;
+    std::function<void(const juce::String&, double, double)> onSectionAdded;
+    std::function<void(double, double, int)>
+        onZoomChanged;  // Callback for zoom changes (newZoom, anchorTime, anchorScreenX)
+    std::function<void()> onZoomEnd;                          // Callback when zoom operation ends
+    std::function<void(double, double)> onLoopRegionChanged;  // Callback when loop region changes
+    std::function<void(float deltaX, float deltaY)>
+        onScrollRequested;  // Callback for scroll requests from mouse wheel
+    std::function<void(double, double)>
+        onTimeSelectionChanged;  // Callback when time selection changes in ruler
+    std::function<void(double, double)>
+        onZoomToFitRequested;  // Callback to zoom to fit a time range (startTime, endTime)
+
+  private:
+    // RAII listener guard — destroyed before cached state below
+    ScopedListener<TimelineController, TimelineStateListener> timelineListener_{this};
+
+    // Layout: use LayoutConfig::TIMELINE_LEFT_PADDING directly
+
+    // Local state (cached from controller for quick access during rendering)
+    // These are updated via TimelineStateListener callbacks
+    double timelineLength = 300.0;  // 5 minutes
+    double playheadPosition = 0.0;
+    double zoom = 1.0;         // pixels per beat
+    int viewportWidth = 1500;  // Default viewport width for minimum zoom calculation
+
+    // Time display mode and tempo
+    TimeDisplayMode displayMode = TimeDisplayMode::BarsBeats;
+    double tempoBPM = DEFAULT_BPM;
+    int timeSignatureNumerator = DEFAULT_TIME_SIGNATURE_NUMERATOR;
+    int timeSignatureDenominator = DEFAULT_TIME_SIGNATURE_DENOMINATOR;
+
+    // Arrangement sections
+    std::vector<std::unique_ptr<ArrangementSection>> sections;
+    int selectedSectionIndex = -1;
+    bool isDraggingSection = false;
+    bool isDraggingEdge = false;
+    bool isDraggingStart = false;    // true for start edge, false for end edge
+    bool arrangementLocked = false;  // Lock arrangement sections to prevent accidental movement
+
+    // Loop marker interaction helper
+    LoopMarkerInteraction loopInteraction_;
+    void initLoopInteraction();
+
+    // Snap to grid state
+    bool snapEnabled = true;    // Snap enabled by default
+    GridQuantize gridQuantize;  // Grid quantize settings
+
+    // Time selection state (for ruler highlight)
+    double timeSelectionStart = -1.0;
+    double timeSelectionEnd = -1.0;
+    bool isDraggingTimeSelection = false;
+    double timeSelectionDragStart = -1.0;  // Initial drag position for time selection
+
+    // Mouse interaction state
+    bool isZooming = false;
+    bool isPendingPlayheadClick = false;  // True if we might set playhead on mouseUp
+    int mouseDownX = 0;
+    int mouseDownY = 0;
+    double zoomStartValue = 1.0;
+    double zoomAnchorTime = 0.0;              // Time position to keep stable during zoom
+    int zoomAnchorScreenX = 0;                // Screen X position where anchor should stay
+    static constexpr int DRAG_THRESHOLD = 5;  // Pixels of movement before it's a drag
+
+    // Helper methods — beats are the native domain, time wrappers go through beats
+    int beatsToPixel(double beats) const;
+    double pixelToBeats(int pixel) const;
+    double pixelToTime(int pixel) const;
+    int timeToPixel(double time) const;
+    int timeDurationToPixels(double duration) const;  // For calculating spacing/widths
+    void drawTimeMarkers(juce::Graphics& g);
+    void drawPlayhead(juce::Graphics& g);
+    void drawArrangementSections(juce::Graphics& g);
+    void drawSection(juce::Graphics& g, const ArrangementSection& section, bool isSelected) const;
+    void drawLoopMarkers(juce::Graphics& g);      // Draws shaded region (background)
+    void drawLoopMarkerFlags(juce::Graphics& g);  // Draws triangular flags (foreground)
+    void drawTimeSelection(juce::Graphics& g);
+
+    // Arrangement interaction helpers
+    int findSectionAtPosition(int x, int y) const;
+    bool isOnSectionEdge(int x, int sectionIndex, bool& isStartEdge) const;
+    juce::String getDefaultSectionName() const;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimelineComponent)
 };
 
 }  // namespace aidaw

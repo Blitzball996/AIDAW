@@ -2,13 +2,10 @@
 
 #include <juce_core/juce_core.h>
 
-namespace aidaw {
+#include "../core/TempoUtils.hpp"
+#include "version.hpp"
 
-// Default tempo/time-signature constants (standalone, no external dependency)
-inline constexpr double kDefaultBPM = 120.0;
-inline constexpr int kDefaultTimeSignatureNumerator = 4;
-inline constexpr int kDefaultTimeSignatureDenominator = 4;
-inline constexpr const char* kAidawVersion = "0.1.0";
+namespace aidaw {
 
 /**
  * @brief Project metadata and settings
@@ -18,12 +15,12 @@ inline constexpr const char* kAidawVersion = "0.1.0";
  */
 struct ProjectInfo {
     juce::String name;
-    juce::String filePath;
+    juce::String filePath;  // .mgd file path
 
     // Playback settings
-    double tempo = kDefaultBPM;
-    int timeSignatureNumerator = kDefaultTimeSignatureNumerator;
-    int timeSignatureDenominator = kDefaultTimeSignatureDenominator;
+    double tempo = DEFAULT_BPM;
+    int timeSignatureNumerator = DEFAULT_TIME_SIGNATURE_NUMERATOR;
+    int timeSignatureDenominator = DEFAULT_TIME_SIGNATURE_DENOMINATOR;
     double projectLength = 240.0;  // seconds
     double sampleRate = 44100.0;
 
@@ -46,7 +43,7 @@ struct ProjectInfo {
     int activeView = 1;  // Default to Arrange
 
     // Version tracking
-    juce::String version = kAidawVersion;
+    juce::String version = MAGDA_VERSION;  // Magda version
     juce::Time lastModified;
 
     // Parameter aliases (UserProject layer, opaque JSON blob managed by AliasRegistry)

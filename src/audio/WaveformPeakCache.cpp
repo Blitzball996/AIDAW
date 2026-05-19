@@ -7,9 +7,11 @@ namespace aidaw {
 
 namespace {
 
-constexpr juce::uint32 kMagic = 0x4B504157;  // 'AWPK' little-endian
+constexpr juce::uint32 kMagic = 0x4B50474D;  // 'MGPK' little-endian
 constexpr juce::uint32 kVersion = 1;
 
+// Header layout — see class comment for the field meanings. Kept as POD so the
+// stream read/write is a single block per direction.
 #pragma pack(push, 1)
 struct PeakFileHeader {
     juce::uint32 magic;
@@ -27,6 +29,8 @@ struct PeakFileHeader {
 static_assert(sizeof(PeakFileHeader) == 56, "PeakFileHeader must be tightly packed");
 
 inline std::int16_t floatToInt16Peak(float v) noexcept {
+    // Clamp before scaling — JUCE readers can deliver values fractionally
+    // outside [-1,1] for int formats with full-scale samples.
     v = juce::jlimit(-1.0f, 1.0f, v);
     return static_cast<std::int16_t>(v * 32767.0f);
 }
@@ -39,7 +43,7 @@ inline float int16PeakToFloat(std::int16_t v) noexcept {
 
 juce::File WaveformPeakCache::getCacheRoot() {
     auto root = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                    .getChildFile("aidaw")
+                    .getChildFile("magda")
                     .getChildFile("peaks");
     if (!root.isDirectory())
         root.createDirectory();
@@ -47,7 +51,9 @@ juce::File WaveformPeakCache::getCacheRoot() {
 }
 
 juce::File WaveformPeakCache::getCacheFileFor(const juce::File& sourceFile) {
-    return getCacheRoot().getChildFile(juce::String::toHexString(sourceFile.hashCode64()) + ".apk");
+    // hashCode64 is path-derived. The header re-validates against size+mtime,
+    // so two files that happen to share a hash still won't pollute each other.
+    return getCacheRoot().getChildFile(juce::String::toHexString(sourceFile.hashCode64()) + ".mpk");
 }
 
 std::unique_ptr<WaveformPeakCache> WaveformPeakCache::loadFromDisk(const juce::File& sourceFile) {
@@ -115,6 +121,8 @@ std::unique_ptr<WaveformPeakCache> WaveformPeakCache::computeAndWrite(
     cache->peaks_.assign(static_cast<size_t>(numChannels),
                          std::vector<std::int16_t>(static_cast<size_t>(numBuckets) * 2, 0));
 
+    // Chunked walk — sized so each chunk is many full buckets, keeping the
+    // outer per-bucket arithmetic cheap and the read syscalls infrequent.
     constexpr int kBucketsPerChunk = 1024;
     constexpr int kChunkSamples = kBucketsPerChunk * SAMPLES_PER_PEAK;
 
@@ -147,6 +155,7 @@ std::unique_ptr<WaveformPeakCache> WaveformPeakCache::computeAndWrite(
                     if (v > maxVal)
                         maxVal = v;
                 }
+                // Empty bucket (only at EOF) collapses to silence.
                 if (minVal > maxVal) {
                     minVal = 0.0f;
                     maxVal = 0.0f;
@@ -162,7 +171,8 @@ std::unique_ptr<WaveformPeakCache> WaveformPeakCache::computeAndWrite(
         bucketIdx += (toRead + SAMPLES_PER_PEAK - 1) / SAMPLES_PER_PEAK;
     }
 
-    // Write to disk with temp file + rename for crash safety.
+    // Write to disk. Use a temp file + rename so a crashed write never leaves
+    // a half-written .mpk in place that would deserialize successfully.
     const auto cacheFile = getCacheFileFor(sourceFile);
     cacheFile.getParentDirectory().createDirectory();
     const auto tempFile = cacheFile.getSiblingFile(cacheFile.getFileName() + ".tmp");
@@ -220,6 +230,7 @@ WaveformPeakCache::MinMax WaveformPeakCache::getMinMaxForRange(int channel, juce
         return result;
 
     const juce::int64 firstBucket = startSample / SAMPLES_PER_PEAK;
+    // -1 to make the range half-open in bucket space.
     const juce::int64 lastBucket = std::min(numBuckets_ - 1, (endSample - 1) / SAMPLES_PER_PEAK);
 
     const auto& chPeaks = peaks_[static_cast<size_t>(channel)];

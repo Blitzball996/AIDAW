@@ -1,0 +1,1369 @@
+#include "MainWindow.hpp"
+
+#include "../../api/magda_api_live.hpp"
+#include "../../core/ClipCommands.hpp"
+#include "../../core/ClipManager.hpp"
+#include "../../core/SelectionManager.hpp"
+#include "../../engine/TracktionEngineWrapper.hpp"
+#include "../../profiling/PerformanceProfiler.hpp"
+#include "../debug/DebugDialog.hpp"
+#include "../debug/DebugSettings.hpp"
+#include "../dialogs/AudioSettingsDialog.hpp"
+#include "../dialogs/ControllersDialog.hpp"
+#include "../dialogs/ExportAudioDialog.hpp"
+#include "../dialogs/PreferencesDialog.hpp"
+#include "../dialogs/TrackManagerDialog.hpp"
+#include "../panels/BottomPanel.hpp"
+#include "../panels/FooterBar.hpp"
+#include "../panels/LeftPanel.hpp"
+#include "../panels/RightPanel.hpp"
+#include "../panels/TransportPanel.hpp"
+#include "../state/TimelineController.hpp"
+#include "../state/TimelineEvents.hpp"
+#include "../themes/DarkTheme.hpp"
+#include "../themes/MainLookAndFeel.hpp"
+#include "../views/MainView.hpp"
+#include "../views/MixerView.hpp"
+#include "../views/SessionView.hpp"
+#include "audio/AudioBridge.hpp"
+#include "audio/MidiBridge.hpp"
+#include "audio/midi/QwertyMidiKeyboard.hpp"
+#include "core/Config.hpp"
+#include "core/LinkModeManager.hpp"
+#include "core/ModulatorEngine.hpp"
+#include "core/StringTable.hpp"
+#include "core/TrackCommands.hpp"
+#include "core/TrackManager.hpp"
+#include "core/UndoManager.hpp"
+#include "engine/AudioEngine.hpp"
+#include "engine/PlaybackPositionTimer.hpp"
+#include "engine/TracktionEngineWrapper.hpp"
+#include "project/ProjectManager.hpp"
+
+namespace aidaw {
+
+// Non-blocking notification shown during device initialization
+class MainWindow::MainComponent::LoadingOverlay : public juce::Component, private juce::Timer {
+  public:
+    LoadingOverlay() {
+        setInterceptsMouseClicks(false, false);  // Non-blocking - clicks pass through
+    }
+
+    ~LoadingOverlay() {
+        stopTimer();
+    }
+
+    void setMessage(const juce::String& msg) {
+        message_ = msg;
+        repaint();
+    }
+
+    void showWithFade() {
+        alpha_ = 1.0f;
+        setVisible(true);
+        stopTimer();
+    }
+
+    void hideWithFade() {
+        // Start fade-out after a brief delay
+        startTimer(50);
+    }
+
+    void paint(juce::Graphics& g) override {
+        auto bounds = getLocalBounds();
+
+        // Position in bottom-right corner with padding
+        const int padding = 16;
+        const int width = 280;
+        const int height = 50;
+        auto notificationBounds =
+            juce::Rectangle<int>(bounds.getWidth() - width - padding,
+                                 bounds.getHeight() - height - padding, width, height);
+
+        // Apply alpha for fade effect
+        float bgAlpha = 0.9f * alpha_;
+
+        // Box background with rounded corners
+        g.setColour(DarkTheme::getColour(DarkTheme::PANEL_BACKGROUND).withAlpha(bgAlpha));
+        g.fillRoundedRectangle(notificationBounds.toFloat(), 6.0f);
+
+        // Box border
+        g.setColour(juce::Colour(0xff4a90d9).withAlpha(bgAlpha));  // Blue accent
+        g.drawRoundedRectangle(notificationBounds.toFloat(), 6.0f, 1.5f);
+
+        // Spinner dots animation
+        auto spinnerArea = notificationBounds.removeFromLeft(40);
+        drawSpinner(g, spinnerArea.reduced(10).toFloat(), alpha_);
+
+        // Message text
+        g.setColour(juce::Colours::white.withAlpha(alpha_));
+        g.setFont(12.0f);
+        g.drawFittedText(message_, notificationBounds.reduced(8, 4),
+                         juce::Justification::centredLeft, 2);
+    }
+
+  private:
+    juce::String message_ = tr("main_window.loading.initializing");
+    float alpha_ = 1.0f;
+    int spinnerFrame_ = 0;
+
+    void timerCallback() override {
+        alpha_ -= 0.1f;
+        if (alpha_ <= 0.0f) {
+            alpha_ = 0.0f;
+            setVisible(false);
+            stopTimer();
+        }
+        repaint();
+    }
+
+    void drawSpinner(juce::Graphics& g, juce::Rectangle<float> area, float alpha) {
+        // Simple animated dots
+        spinnerFrame_ = (spinnerFrame_ + 1) % 12;
+        const int numDots = 3;
+        float dotSize = 4.0f;
+        float spacing = 6.0f;
+
+        float startX = area.getCentreX() - (numDots * spacing) / 2.0f;
+        float y = area.getCentreY();
+
+        for (int i = 0; i < numDots; ++i) {
+            float phase = std::fmod((spinnerFrame_ / 4.0f) + i * 0.3f, 1.0f);
+            float dotAlpha = 0.3f + 0.7f * std::sin(phase * juce::MathConstants<float>::pi);
+            g.setColour(juce::Colour(0xff4a90d9).withAlpha(dotAlpha * alpha));
+            g.fillEllipse(startX + i * spacing, y - dotSize / 2, dotSize, dotSize);
+        }
+    }
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LoadingOverlay)
+};
+
+// ResizeHandle for panel resizing
+class MainWindow::MainComponent::ResizeHandle : public juce::Component {
+  public:
+    enum Direction { Horizontal, Vertical };
+
+    ResizeHandle(Direction dir) : direction(dir) {
+        setMouseCursor(direction == Horizontal ? juce::MouseCursor::LeftRightResizeCursor
+                                               : juce::MouseCursor::UpDownResizeCursor);
+    }
+
+    void paint(juce::Graphics& g) override {
+        g.setColour(DarkTheme::getColour(DarkTheme::RESIZE_HANDLE));
+        g.fillAll();
+    }
+
+    void mouseDown(const juce::MouseEvent& event) override {
+        startDragPosition = direction == Horizontal ? event.x : event.y;
+    }
+
+    void mouseDrag(const juce::MouseEvent& event) override {
+        auto currentPos = direction == Horizontal ? event.x : event.y;
+        auto delta = currentPos - startDragPosition;
+
+        if (onResize) {
+            onResize(delta);
+        }
+    }
+
+    void mouseDoubleClick(const juce::MouseEvent&) override {
+        if (onDoubleClick)
+            onDoubleClick();
+    }
+
+    std::function<void(int)> onResize;
+    std::function<void()> onDoubleClick;
+
+  private:
+    Direction direction;
+    int startDragPosition = 0;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ResizeHandle)
+};
+
+// MainWindow implementation
+MainWindow::MainWindow(AudioEngine* audioEngine)
+    : DocumentWindow("MAGDA", DarkTheme::getBackgroundColour(), DocumentWindow::allButtons),
+      externalAudioEngine_(audioEngine) {
+    juce::Logger::writeToLog("[MainWindow] Constructor started");
+#if JUCE_LINUX
+    // KWin/Wayland clips the top of the client area for XWayland windows that
+    // request native decorations, hiding the menu bar. JUCE-drawn decorations
+    // lay out the menu correctly on every WM.
+    setUsingNativeTitleBar(false);
+    setTitleBarHeight(MainLookAndFeel::kTitleBarHeight);
+#else
+    setUsingNativeTitleBar(true);
+#endif
+    setResizable(true, true);
+
+    juce::Logger::writeToLog("[MainWindow] Creating MainComponent...");
+    mainComponent = new MainComponent(externalAudioEngine_);
+    juce::Logger::writeToLog("[MainWindow] MainComponent created");
+    setContentOwned(mainComponent, true);  // Window takes ownership
+
+    // Register command manager key mappings on the DocumentWindow so that
+    // shortcuts (Cmd+T, Cmd+Z, etc.) work regardless of which child
+    // component has keyboard focus. Previously this was on MainComponent,
+    // which missed events when a child (e.g. track name label) consumed
+    // focus after track creation.
+    addKeyListener(mainComponent->getCommandManager().getKeyMappings());
+
+    // Wire QWERTY keyboard toggle to register/unregister on THIS window
+    if (mainComponent->getQwertyKeyboard()) {
+        // Hand the keyboard pointer to the transport panel so right-clicking
+        // its toggle can pop up the keyboard-layout hint.
+        mainComponent->transportPanel->setQwertyKeyboard(mainComponent->getQwertyKeyboard());
+        mainComponent->transportPanel->onQwertyKeyboardToggled = [this](bool enabled) {
+            if (!mainComponent)
+                return;
+            auto* kb = mainComponent->getQwertyKeyboard();
+            if (!kb)
+                return;
+            kb->setEnabled(enabled);
+            if (enabled)
+                addKeyListener(kb);
+            else
+                removeKeyListener(kb);
+
+            // Enable/disable the virtual MIDI device and notify the
+            // routing selectors to refresh their cached device lists.
+            if (auto* engine = mainComponent->getAudioEngine()) {
+                if (auto* bridge = engine->getAudioBridge()) {
+                    if (auto* vmd = bridge->getQwertyMidiDevice())
+                        vmd->setEnabled(enabled);
+                }
+                if (auto* mb = engine->getMidiBridge())
+                    mb->notifyMidiDeviceListChanged();
+            }
+            DBG("QWERTY keyboard " << (enabled ? "ON" : "OFF"));
+        };
+    }
+
+    // Setup menu bar
+    juce::Logger::writeToLog("[MainWindow] Setting up menu bar...");
+    setupMenuBar();
+    juce::Logger::writeToLog("[MainWindow] Menu bar ready");
+
+    // Size and position the window within the display's work area
+    auto display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay();
+    if (display != nullptr) {
+        auto workArea = display->userArea;  // Excludes taskbar
+        // Leave some margin so the title bar and window frame are fully visible
+        int margin = 10;
+        int w = juce::jmin(1200, workArea.getWidth() - margin * 2);
+        int h = juce::jmin(800, workArea.getHeight() - margin * 2);
+        setBoundsConstrained(workArea.withSizeKeepingCentre(w, h));
+    } else {
+        setSize(1200, 800);
+        centreWithSize(getWidth(), getHeight());
+    }
+    juce::Logger::writeToLog("[MainWindow] Calling setVisible(true)...");
+    setVisible(true);
+    juce::Logger::writeToLog("[MainWindow] Window is now visible");
+
+    // Listen for project changes to update window title
+    ProjectManager::getInstance().addListener(this);
+    updateWindowTitle();
+
+    // Start modulation engine at 60 FPS (updates LFO values in background)
+    aidaw::ModulatorEngine::getInstance().startTimer(16);
+}
+
+MainWindow::~MainWindow() {
+    DBG("  [5a] MainWindow::~MainWindow start");
+
+    // Remove QWERTY keyboard listener from this window before content is destroyed
+    if (mainComponent) {
+        if (auto* kb = mainComponent->getQwertyKeyboard()) {
+            removeKeyListener(kb);
+            kb->setEnabled(false);
+        }
+    }
+
+    ProjectManager::getInstance().removeListener(this);
+
+#if JUCE_DEBUG
+    // Print profiling report if enabled, then shutdown to clear JUCE objects
+    auto& monitor = aidaw::PerformanceMonitor::getInstance();
+    if (monitor.isEnabled()) {
+        auto report = monitor.generateReport();
+        DBG("\n" << report.toStdString());
+        monitor.shutdown();  // Clear stats map before JUCE cleanup
+    }
+#endif
+
+#if JUCE_MAC
+    DBG("  [5b] Clearing macOS menu bar...");
+    juce::MenuBarModel::setMacMainMenu(nullptr);
+#else
+    DBG("  [5b] Clearing menu bar...");
+    setMenuBar(nullptr);
+#endif
+
+    removeKeyListener(mainComponent->getCommandManager().getKeyMappings());
+    DBG("  [5c] MainWindow::~MainWindow - about to destroy content");
+}
+
+void MainWindow::closeButtonPressed() {
+    juce::JUCEApplication::getInstance()->systemRequestedQuit();
+}
+
+void MainWindow::applyPanelVisibilityFromConfig() {
+    if (!mainComponent)
+        return;
+    auto& config = Config::getInstance();
+    mainComponent->leftPanelCollapsed = config.getLeftPanelCollapsed();
+    mainComponent->rightPanelCollapsed = config.getRightPanelCollapsed();
+    mainComponent->bottomPanelCollapsed = config.getBottomPanelCollapsed();
+    mainComponent->resized();
+}
+
+void MainWindow::applyLayoutFromConfig() {
+    if (!mainComponent)
+        return;
+    MenuManager::getInstance().menuItemsChanged();
+    if (mainComponent->mainView)
+        mainComponent->mainView->resized();
+}
+
+void MainWindow::updateWindowTitle() {
+    auto& pm = ProjectManager::getInstance();
+    juce::String title = "MAGDA";
+    if (pm.hasOpenProject()) {
+        auto name = pm.getProjectName();
+        if (name.isNotEmpty())
+            title += " - " + name;
+        if (pm.isDirty())
+            title += " *";
+    }
+    setName(title);
+}
+
+void MainWindow::projectOpened(const ProjectInfo&) {
+    updateWindowTitle();
+}
+
+void MainWindow::projectSaved(const ProjectInfo&) {
+    updateWindowTitle();
+}
+
+void MainWindow::projectClosed() {
+    updateWindowTitle();
+}
+
+void MainWindow::projectDirtyStateChanged(bool) {
+    updateWindowTitle();
+}
+
+// MainComponent implementation
+MainWindow::MainComponent::MainComponent(AudioEngine* externalEngine) {
+    juce::Logger::writeToLog("[MainComponent] Constructor started");
+    setWantsKeyboardFocus(true);
+
+    // Enable tooltips if configured
+    if (Config::getInstance().getShowTooltips()) {
+        tooltipWindow_ = std::make_unique<juce::TooltipWindow>(this);
+    }
+
+    // Register this component as a command target for keyboard shortcuts
+    commandManager.registerAllCommandsForTarget(this);
+
+    // Make this the first command target so shortcuts (Cmd+Z, etc.) work
+    // regardless of which child component has keyboard focus.
+    commandManager.setFirstCommandTarget(this);
+
+    // Register command manager key mappings on this component so that
+    // registered shortcuts (Cmd+Z, Cmd+Shift+Z, etc.) are handled
+    // globally when key events bubble up to this top-level component.
+    addKeyListener(commandManager.getKeyMappings());
+
+    // Use external engine if provided, otherwise create our own
+    if (externalEngine) {
+        externalAudioEngine_ = externalEngine;  // Store external engine pointer
+        juce::Logger::writeToLog("[MainComponent] Using external audio engine");
+    } else {
+        // Create audio engine FIRST (before creating views that need it)
+        juce::Logger::writeToLog("[MainComponent] Creating internal audio engine...");
+        audioEngine_ = std::make_unique<TracktionEngineWrapper>();
+        if (!audioEngine_->initialize()) {
+            juce::Logger::writeToLog("[MainComponent] WARNING: Failed to initialize audio engine");
+        }
+        externalEngine = audioEngine_.get();
+        juce::Logger::writeToLog("[MainComponent] Internal audio engine created");
+    }
+
+    // Initialize TrackManager with audio engine for routing operations
+    TrackManager::getInstance().setAudioEngine(externalEngine);
+
+    // Wire MidiBridge to DebugDialog for MIDI monitor
+    if (externalEngine) {
+        daw::ui::DebugDialog::setMidiBridge(externalEngine->getMidiBridge());
+    }
+
+    // Initialize panel sizes from LayoutConfig, scaled to display size
+    auto& layout = LayoutConfig::getInstance();
+    transportHeight = layout.defaultTransportHeight;
+
+    // Scale side panel defaults based on screen width
+    if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()) {
+        int screenWidth = display->userArea.getWidth();
+        if (screenWidth >= 2560) {  // Large display (1440p+)
+            leftPanelWidth = rightPanelWidth = 400;
+        } else if (screenWidth >= 1920) {  // Full HD
+            leftPanelWidth = rightPanelWidth = 350;
+        } else {
+            leftPanelWidth = rightPanelWidth = layout.defaultLeftPanelWidth;
+        }
+        bottomPanelHeight = layout.defaultBottomPanelHeight;
+    } else {
+        leftPanelWidth = rightPanelWidth = layout.defaultLeftPanelWidth;
+        bottomPanelHeight = layout.defaultBottomPanelHeight;
+    }
+
+    // Listen for debug settings changes
+    daw::ui::DebugSettings::getInstance().addListener([this]() {
+        bottomPanelHeight = daw::ui::DebugSettings::getInstance().getBottomPanelHeight();
+        resized();
+    });
+
+    // Initialize panel visibility and collapse state from Config
+    auto& config = Config::getInstance();
+    leftPanelVisible = config.getShowLeftPanel();
+    rightPanelVisible = config.getShowRightPanel();
+    bottomPanelVisible = config.getShowBottomPanel();
+
+    // Restore persisted collapse state
+    leftPanelCollapsed = config.getLeftPanelCollapsed();
+    rightPanelCollapsed = config.getRightPanelCollapsed();
+    bottomPanelCollapsed = config.getBottomPanelCollapsed();
+
+    // Restore persisted panel sizes (0 = use defaults already set above)
+    // Clamp against layout constraints to handle stale config values
+    if (config.getLeftPanelWidth() > 0)
+        leftPanelWidth = juce::jmax(layout.minPanelWidth, config.getLeftPanelWidth());
+    if (config.getRightPanelWidth() > 0)
+        rightPanelWidth = juce::jmax(layout.minPanelWidth, config.getRightPanelWidth());
+    if (config.getBottomPanelHeight() > 0)
+        bottomPanelHeight = juce::jmax(layout.minBottomPanelHeight, config.getBottomPanelHeight());
+
+    // Create panels
+    juce::Logger::writeToLog("[MainComponent] Creating TransportPanel...");
+    transportPanel = std::make_unique<TransportPanel>();
+    addAndMakeVisible(*transportPanel);
+
+    juce::Logger::writeToLog("[MainComponent] Creating LeftPanel...");
+    leftPanel = std::make_unique<LeftPanel>();
+    leftPanel->setAudioEngine(externalEngine);
+    leftPanel->onCollapseChanged = [this](bool collapsed) {
+        leftPanelCollapsed = collapsed;
+        resized();
+    };
+    addAndMakeVisible(*leftPanel);
+
+    juce::Logger::writeToLog("[MainComponent] Creating RightPanel...");
+    rightPanel = std::make_unique<RightPanel>();
+    rightPanel->setAudioEngine(externalEngine);
+    rightPanel->onCollapseChanged = [this](bool collapsed) {
+        rightPanelCollapsed = collapsed;
+        resized();
+    };
+    addAndMakeVisible(*rightPanel);
+
+    juce::Logger::writeToLog("[MainComponent] Creating BottomPanel...");
+    bottomPanel = std::make_unique<BottomPanel>();
+    bottomPanel->setAudioEngine(externalEngine);
+    bottomPanel->onCollapseChanged = [this](bool collapsed) {
+        bottomPanelCollapsed = collapsed;
+        if (footerBar)
+            footerBar->setBottomPanelCollapsed(collapsed);
+        resized();
+    };
+    bottomPanel->onHeaderDoubleClick = [this]() {
+        auto& layout = LayoutConfig::getInstance();
+        // Ask the active content for its preferred height. Falls back to
+        // the layout default if the content returns 0 (no preference).
+        int optimalHeight = 0;
+        if (auto* content = bottomPanel->getActiveContent())
+            optimalHeight = content->getOptimalPanelHeight(getHeight());
+        if (optimalHeight <= 0)
+            optimalHeight = layout.defaultBottomPanelHeight;
+        int maxHeight = static_cast<int>(getHeight() * layout.maxBottomPanelRatio);
+        bottomPanelHeight =
+            juce::jlimit(layout.minBottomPanelHeight,
+                         juce::jmax(layout.minBottomPanelHeight, maxHeight), optimalHeight);
+        if (bottomPanelCollapsed) {
+            bottomPanelCollapsed = false;
+            bottomPanel->setCollapsed(false);
+            if (footerBar)
+                footerBar->setBottomPanelCollapsed(false);
+        }
+        resized();
+    };
+    addAndMakeVisible(*bottomPanel);
+
+    juce::Logger::writeToLog("[MainComponent] Creating FooterBar...");
+    footerBar = std::make_unique<FooterBar>();
+    footerBar->onBottomPanelCollapseToggle = [this]() {
+        bottomPanelCollapsed = !bottomPanelCollapsed;
+        bottomPanel->setCollapsed(bottomPanelCollapsed);
+        footerBar->setBottomPanelCollapsed(bottomPanelCollapsed);
+        resized();
+    };
+    footerBar->onControllersClicked = [this]() { ControllersDialog::showDialog(this); };
+    addAndMakeVisible(*footerBar);
+
+    // Create views (now audioEngine is valid - use externalEngine which points to either external
+    // or internal)
+    juce::Logger::writeToLog("[MainComponent] Creating MainView...");
+    mainView = std::make_unique<MainView>(externalEngine);
+    addAndMakeVisible(*mainView);
+    juce::Logger::writeToLog("[MainComponent] MainView created");
+
+    juce::Logger::writeToLog("[MainComponent] Creating SessionView...");
+    sessionView = std::make_unique<SessionView>();
+    sessionView->setTimelineController(&mainView->getTimelineController());
+    sessionView->setAudioEngine(externalEngine);
+    addChildComponent(*sessionView);
+
+    // Wire timeline controller to panels (for inspector tempo updates)
+    leftPanel->setTimelineController(&mainView->getTimelineController());
+    rightPanel->setTimelineController(&mainView->getTimelineController());
+    bottomPanel->setTimelineController(&mainView->getTimelineController());
+
+    juce::Logger::writeToLog("[MainComponent] Creating MixerView...");
+    mixerView = std::make_unique<MixerView>(externalEngine);
+    addChildComponent(*mixerView);
+    juce::Logger::writeToLog("[MainComponent] MixerView created");
+
+    // Wire up callbacks between views and transport
+    mainView->onLoopRegionChanged = [this](double start, double end, bool enabled) {
+        transportPanel->setLoopRegion(start, end, enabled);
+    };
+    mainView->onPlayheadPositionChanged = [this](double position) {
+        transportPanel->setPlayheadPosition(position);
+    };
+    mainView->onTimeSelectionChanged = [this](double start, double end, bool hasTimeSelection) {
+        transportPanel->setTimeSelection(start, end, hasTimeSelection);
+        // Refresh menu enabled state so Copy/Duplicate/Delete reflect time selection
+        bool hasSelection = hasTimeSelection;
+        if (!hasSelection) {
+            // Check if there's still a clip or note selection
+            hasSelection = !SelectionManager::getInstance().getSelectedClips().empty() ||
+                           SelectionManager::getInstance().getNoteSelection().isValid();
+        }
+        bool isPlaying = false, isRecording = false, isLooping = false, hasEditCursor = false;
+        if (mainView) {
+            const auto& ts = mainView->getTimelineController().getState();
+            isPlaying = ts.playhead.isPlaying;
+            isRecording = ts.playhead.isRecording;
+            isLooping = ts.loop.enabled;
+            hasEditCursor = ts.editCursorPosition >= 0;
+        }
+        MenuManager::getInstance().updateMenuStates(
+            false, false, hasSelection, hasEditCursor, leftPanelVisible, rightPanelVisible,
+            bottomPanelVisible, isPlaying, isRecording, isLooping);
+    };
+    mainView->onEditCursorChanged = [this](double position) {
+        transportPanel->setEditCursorPosition(position);
+    };
+    mainView->onPunchRegionChanged = [this](double start, double end, bool punchInEnabled,
+                                            bool punchOutEnabled) {
+        transportPanel->setPunchRegion(start, end, punchInEnabled, punchOutEnabled);
+    };
+    mainView->onGridQuantizeChanged = [this](bool autoGrid, int numerator, int denominator,
+                                             bool isBars) {
+        transportPanel->setGridQuantize(autoGrid, numerator, denominator, isBars);
+    };
+    mainView->onTempoChanged = [this](double bpm) { transportPanel->setTempo(bpm); };
+    mainView->onTimeSignatureChanged = [this](int numerator, int denominator) {
+        transportPanel->setTimeSignature(numerator, denominator);
+    };
+
+    // Wire clip render callback (handles both single and multi-clip render)
+    mainView->onClipRenderRequested = [this](ClipId clipId) {
+        auto* engine = dynamic_cast<TracktionEngineWrapper*>(getAudioEngine());
+        if (!engine) {
+            DBG("RenderClip: no TracktionEngineWrapper available");
+            return;
+        }
+
+        auto& selectionManager = SelectionManager::getInstance();
+        auto& clipManager = ClipManager::getInstance();
+        auto selectedClips = selectionManager.getSelectedClips();
+
+        if (selectedClips.size() > 1) {
+            // Multi-clip render: filter to audio clips, compound operation
+            std::vector<ClipId> audioClips;
+            for (auto cid : selectedClips) {
+                auto* c = clipManager.getClip(cid);
+                if (c && c->isAudio())
+                    audioClips.push_back(cid);
+            }
+            if (audioClips.empty())
+                return;
+
+            UndoManager::getInstance().beginCompoundOperation(tr("main_window.undo.render_clips"));
+            std::vector<ClipId> newClips;
+            for (auto cid : audioClips) {
+                auto cmd = std::make_unique<RenderClipCommand>(cid, engine);
+                auto* cmdPtr = cmd.get();
+                UndoManager::getInstance().executeCommand(std::move(cmd));
+                if (cmdPtr->wasSuccessful()) {
+                    newClips.push_back(cmdPtr->getNewClipId());
+                }
+            }
+            UndoManager::getInstance().endCompoundOperation();
+
+            if (!newClips.empty()) {
+                std::unordered_set<ClipId> newSelection(newClips.begin(), newClips.end());
+                selectionManager.selectClips(newSelection);
+            }
+        } else {
+            // Single clip render
+            auto cmd = std::make_unique<RenderClipCommand>(clipId, engine);
+            auto* cmdPtr = cmd.get();
+            UndoManager::getInstance().executeCommand(std::move(cmd));
+
+            if (cmdPtr->wasSuccessful()) {
+                selectionManager.selectClip(cmdPtr->getNewClipId());
+            }
+        }
+    };
+
+    // Wire render time selection callback
+    mainView->onRenderTimeSelectionRequested = [this]() {
+        getCommandManager().invokeDirectly(CommandIDs::renderTimeSelection, false);
+    };
+
+    // Wire bounce callbacks
+    mainView->onBounceInPlaceRequested = [this](ClipId clipId) {
+        auto* engine = dynamic_cast<TracktionEngineWrapper*>(getAudioEngine());
+        if (!engine) {
+            DBG("BounceInPlace: no TracktionEngineWrapper available");
+            return;
+        }
+        auto cmd = std::make_unique<BounceInPlaceCommand>(clipId, engine);
+        UndoManager::getInstance().executeCommand(std::move(cmd));
+    };
+
+    mainView->onBounceToNewTrackRequested = [this](ClipId clipId) {
+        auto* engine = dynamic_cast<TracktionEngineWrapper*>(getAudioEngine());
+        if (!engine) {
+            DBG("BounceToNewTrack: no TracktionEngineWrapper available");
+            return;
+        }
+        auto cmd = std::make_unique<BounceToNewTrackCommand>(clipId, engine);
+        UndoManager::getInstance().executeCommand(std::move(cmd));
+    };
+
+    juce::Logger::writeToLog("[MainComponent] Setting up resize handles, view mode, callbacks...");
+    setupResizeHandles();
+    setupViewModeListener();
+    setupAudioEngineCallbacks(externalEngine);
+    setupDeviceLoadingCallback();
+
+    // Sync persisted collapse state to PanelController so TabbedPanel UI matches
+    // Note: LeftPanel uses PanelLocation::Right and RightPanel uses PanelLocation::Left
+    if (leftPanelCollapsed)
+        daw::ui::PanelController::getInstance().setCollapsed(daw::ui::PanelLocation::Right, true);
+    if (rightPanelCollapsed)
+        daw::ui::PanelController::getInstance().setCollapsed(daw::ui::PanelLocation::Left, true);
+    if (bottomPanelCollapsed) {
+        daw::ui::PanelController::getInstance().setCollapsed(daw::ui::PanelLocation::Bottom, true);
+        footerBar->setBottomPanelCollapsed(true);
+    }
+
+// Enable profiling if environment variable is set
+#if JUCE_DEBUG
+    if (auto* enableProfiling = std::getenv("MAGDA_ENABLE_PROFILING")) {
+        if (std::string(enableProfiling) == "1") {
+            aidaw::PerformanceMonitor::getInstance().setEnabled(true);
+            DBG("Performance profiling enabled via MAGDA_ENABLE_PROFILING");
+        }
+    }
+#endif
+
+    // Create and register the global Toast notification overlay
+    toast_ = std::make_unique<daw::ui::Toast>();
+    addAndMakeVisible(*toast_);
+    toast_->toFront(false);
+    daw::ui::Toast::setGlobalHost(toast_.get());
+
+    // Listen for MIDI Learn events to show toast notifications
+    aidaw::MidiLearnCoordinator::getInstance().addListener(this);
+
+    // Select master channel by default so the inspector isn't empty on startup
+    SelectionManager::getInstance().selectTrack(MASTER_TRACK_ID);
+    juce::Logger::writeToLog("[MainComponent] Constructor complete");
+}
+
+void MainWindow::MainComponent::setupResizeHandles() {
+    auto& layout = LayoutConfig::getInstance();
+
+    // Transport resizer
+    transportResizer = std::make_unique<ResizeHandle>(ResizeHandle::Vertical);
+    transportResizer->onResize = [this, &layout](int delta) {
+        transportHeight = juce::jlimit(layout.minTransportHeight, layout.maxTransportHeight,
+                                       transportHeight + delta);
+        resized();
+    };
+    addAndMakeVisible(*transportResizer);
+
+    // Left panel resizer
+    leftResizer = std::make_unique<ResizeHandle>(ResizeHandle::Horizontal);
+    leftResizer->onResize = [this, &layout](int delta) {
+        int newWidth = leftPanelWidth + delta;
+        if (newWidth < layout.panelCollapseThreshold) {
+            leftPanelCollapsed = true;
+            leftPanel->setCollapsed(true);
+        } else {
+            if (leftPanelCollapsed) {
+                leftPanelCollapsed = false;
+                leftPanel->setCollapsed(false);
+            }
+            int maxWidth = static_cast<int>(getWidth() * layout.maxLeftPanelRatio);
+            leftPanelWidth = juce::jlimit(layout.minPanelWidth, maxWidth, newWidth);
+        }
+        resized();
+    };
+    addAndMakeVisible(*leftResizer);
+
+    // Right panel resizer
+    rightResizer = std::make_unique<ResizeHandle>(ResizeHandle::Horizontal);
+    rightResizer->onResize = [this, &layout](int delta) {
+        int newWidth = rightPanelWidth - delta;
+        if (newWidth < layout.panelCollapseThreshold) {
+            rightPanelCollapsed = true;
+            rightPanel->setCollapsed(true);
+        } else {
+            if (rightPanelCollapsed) {
+                rightPanelCollapsed = false;
+                rightPanel->setCollapsed(false);
+            }
+            int maxWidth = static_cast<int>(getWidth() * layout.maxRightPanelRatio);
+            rightPanelWidth = juce::jlimit(layout.minPanelWidth, maxWidth, newWidth);
+        }
+        resized();
+    };
+    addAndMakeVisible(*rightResizer);
+
+    // Bottom panel resizer
+    bottomResizer = std::make_unique<ResizeHandle>(ResizeHandle::Vertical);
+    bottomResizer->onResize = [this, &layout](int delta) {
+        int newHeight = bottomPanelHeight - delta;
+        if (newHeight < layout.panelCollapseThreshold) {
+            bottomPanelCollapsed = true;
+            bottomPanel->setCollapsed(true);
+            if (footerBar)
+                footerBar->setBottomPanelCollapsed(true);
+        } else {
+            if (bottomPanelCollapsed) {
+                bottomPanelCollapsed = false;
+                bottomPanel->setCollapsed(false);
+                if (footerBar)
+                    footerBar->setBottomPanelCollapsed(false);
+            }
+            int maxHeight = static_cast<int>(getHeight() * layout.maxBottomPanelRatio);
+            bottomPanelHeight =
+                juce::jlimit(layout.minBottomPanelHeight,
+                             juce::jmax(layout.minBottomPanelHeight, maxHeight), newHeight);
+        }
+        resized();
+    };
+    addAndMakeVisible(*bottomResizer);
+}
+
+void MainWindow::MainComponent::setupViewModeListener() {
+    ViewModeController::getInstance().addListener(this);
+    currentViewMode = ViewModeController::getInstance().getViewMode();
+    switchToView(currentViewMode);
+
+    // Also listen to selection changes to update menu state
+    SelectionManager::getInstance().addListener(this);
+
+    // Listen to track property changes for playback mode updates
+    TrackManager::getInstance().addListener(this);
+}
+
+void MainWindow::MainComponent::setupAudioEngineCallbacks(AudioEngine* engine) {
+    if (!engine) {
+        DBG("Warning: setupAudioEngineCallbacks called with null engine");
+        return;
+    }
+
+    // Register audio engine as listener on TimelineController
+    // This enables the observer pattern: UI -> TimelineController -> AudioEngine
+    mainView->getTimelineController().addAudioEngineListener(engine);
+
+    // Create position timer for playhead updates (AudioEngine -> UI)
+    // Timer runs continuously and detects play/stop state changes
+    positionTimer_ =
+        std::make_unique<PlaybackPositionTimer>(*engine, mainView->getTimelineController());
+    positionTimer_->onPlayStateChanged = [this](bool playing) {
+        if (transportPanel)
+            transportPanel->setPlaybackState(playing);
+    };
+    positionTimer_->onRecordStateChanged = [this](bool recording) {
+        if (transportPanel)
+            transportPanel->setRecordingState(recording);
+    };
+    positionTimer_->onSessionPlayheadUpdate =
+        [this](const std::unordered_map<ClipId, double>& clipPositions) {
+            if (sessionView)
+                sessionView->setSessionPlayheadPositions(clipPositions);
+        };
+    positionTimer_->onCpuUsageUpdate = [this](float cpu, int xruns, const juce::String& deviceName,
+                                              double sampleRate, int bufferSize) {
+        if (transportPanel) {
+            transportPanel->setCpuUsage(cpu);
+            transportPanel->setXrunCount(xruns);
+            transportPanel->setAudioDeviceInfo(deviceName, sampleRate, bufferSize);
+        }
+    };
+    positionTimer_->start();  // Start once and keep running
+
+    // Route Lua-script transport calls through the same TimelineController
+    // dispatch the on-screen buttons use, so script play() honours MAGDA's
+    // playhead (issue: script play resumed from Tracktion's stop position
+    // instead of editPosition because it bypassed the TimelineController
+    // -> locate -> play sequence).
+    if (auto* tew = dynamic_cast<TracktionEngineWrapper*>(engine)) {
+        if (auto* live = dynamic_cast<aidaw::MagdaApiLive*>(&tew->getMagdaApi())) {
+            live->setTransportPlayDispatcher(
+                [this]() { mainView->getTimelineController().dispatch(StartPlaybackEvent{}); });
+            live->setTransportStopDispatcher(
+                [this]() { mainView->getTimelineController().dispatch(StopPlaybackEvent{}); });
+            live->setTransportLoopDispatcher([this](bool enabled) {
+                // Route straight to the controller event — bypasses
+                // MainView::setLoopEnabled's UI-only selection-promotion behavior so
+                // a scripted toggle never silently overwrites the saved loop region
+                // just because the user happens to have a time selection active.
+                mainView->getTimelineController().dispatch(SetLoopEnabledEvent{enabled});
+            });
+        }
+    }
+
+    // Wire transport callbacks - just dispatch events, TimelineController notifies audio engine
+    transportPanel->onPlay = [this]() {
+        mainView->getTimelineController().dispatch(StartPlaybackEvent{});
+    };
+
+    transportPanel->onStop = [this]() {
+        DBG("[MainWindow] transportPanel->onStop dispatching StopPlaybackEvent");
+        mainView->getTimelineController().dispatch(StopPlaybackEvent{});
+    };
+
+    transportPanel->onPause = [this]() {
+        DBG("[MainWindow] transportPanel->onPause dispatching StopPlaybackEvent");
+        mainView->getTimelineController().dispatch(StopPlaybackEvent{});
+    };
+
+    transportPanel->onRecord = [this]() {
+        mainView->getTimelineController().dispatch(StartRecordEvent{});
+    };
+
+    transportPanel->onLoop = [this](bool enabled) {
+        mainView->getTimelineController().dispatch(SetLoopEnabledEvent{enabled});
+        mainView->setLoopEnabled(enabled);
+    };
+
+    transportPanel->onBackToArrangement = [this]() {
+        if (auto* engine = getAudioEngine())
+            engine->deactivateAllSessionClips();
+    };
+
+    // QWERTY MIDI keyboard — created here, wired to MainWindow via the
+    // onQwertyKeyboardToggled callback set in the MainWindow constructor
+    // (after setContentOwned) so the key listener registers on the
+    // DocumentWindow, not on MainComponent.
+    if (auto* bridge = engine->getAudioBridge()) {
+        qwertyKeyboard_ = std::make_unique<QwertyMidiKeyboard>(*bridge, engine->getMidiBridge());
+    }
+
+    transportPanel->onTempoChange = [this](double bpm) {
+        mainView->getTimelineController().dispatch(SetTempoEvent{bpm});
+    };
+
+    transportPanel->onTimeSignatureChange = [this](int numerator, int denominator) {
+        mainView->getTimelineController().dispatch(SetTimeSignatureEvent{numerator, denominator});
+    };
+
+    transportPanel->onMetronomeToggle = [engine](bool enabled) {
+        // Metronome is audio-engine only, not part of timeline state
+        engine->setMetronomeEnabled(enabled);
+    };
+
+    transportPanel->onCountInModeChange = [engine](int mode) { engine->setCountInMode(mode); };
+
+    // Initialize count-in UI from engine state
+    transportPanel->setCountInMode(engine->getCountInMode());
+
+    transportPanel->onSnapToggle = [this](bool enabled) {
+        mainView->getTimelineController().dispatch(SetSnapEnabledEvent{enabled});
+        // Sync timeline component's snap state
+        mainView->syncSnapState();
+    };
+
+    transportPanel->onGridQuantizeChange = [this](bool autoGrid, int numerator, int denominator) {
+        mainView->getTimelineController().dispatch(
+            SetGridQuantizeEvent{autoGrid, numerator, denominator});
+    };
+
+    transportPanel->onAutomationWriteToggle = [this](bool enabled) {
+        if (auto* bridge = getAudioEngine()->getAudioBridge())
+            bridge->setAutomationWriteEnabled(enabled);
+    };
+    transportPanel->onAutomationModeChanged = [this](AutomationMode mode) {
+        if (auto* bridge = getAudioEngine()->getAudioBridge())
+            bridge->setAutomationMode(mode);
+    };
+
+    // Navigation callbacks
+    transportPanel->onGoHome = [this]() {
+        mainView->getTimelineController().dispatch(SetEditPositionEvent{0.0});
+    };
+    transportPanel->onGoToPrev = [this]() {
+        mainView->getTimelineController().dispatch(SetEditPositionEvent{0.0});
+    };
+    transportPanel->onGoToNext = [this]() {
+        auto& state = mainView->getTimelineController().getState();
+        mainView->getTimelineController().dispatch(SetEditPositionEvent{state.timelineLength});
+    };
+    transportPanel->onPlayheadEdit = [this](double beats) {
+        double bpm = mainView->getTimelineController().getState().tempo.bpm;
+        double seconds = (beats * 60.0) / bpm;
+        mainView->getTimelineController().dispatch(SetEditPositionEvent{seconds});
+    };
+    transportPanel->onLoopRegionEdit = [this](double startSec, double endSec) {
+        mainView->getTimelineController().dispatch(SetLoopRegionEvent{startSec, endSec});
+    };
+    transportPanel->onTimeSelectionEdit = [this](double startSec, double endSec) {
+        mainView->getTimelineController().dispatch(SetTimeSelectionEvent{startSec, endSec, {}});
+    };
+    transportPanel->onEditCursorEdit = [this](double positionBeats) {
+        mainView->getTimelineController().dispatch(SetEditCursorEvent{positionBeats});
+    };
+
+    // Punch in/out callbacks
+    transportPanel->onPunchInToggle = [this](bool enabled) {
+        mainView->getTimelineController().dispatch(SetPunchInEnabledEvent{enabled});
+    };
+    transportPanel->onPunchOutToggle = [this](bool enabled) {
+        mainView->getTimelineController().dispatch(SetPunchOutEnabledEvent{enabled});
+    };
+    transportPanel->onPunchRegionEdit = [this](double startSec, double endSec) {
+        mainView->getTimelineController().dispatch(SetPunchRegionEvent{startSec, endSec});
+    };
+}
+
+void MainWindow::MainComponent::setupDeviceLoadingCallback() {
+    // Create loading notification (non-blocking, bottom-right corner)
+    loadingOverlay_ = std::make_unique<LoadingOverlay>();
+    addAndMakeVisible(*loadingOverlay_);
+
+    // Get audio engine (either external or internal)
+    auto* engine = getAudioEngine();
+    auto* teWrapper = dynamic_cast<TracktionEngineWrapper*>(engine);
+
+    if (teWrapper) {
+        // Show notification and disable transport if devices are still loading
+        if (teWrapper->isDevicesLoading()) {
+            loadingOverlay_->setMessage(tr("main_window.loading.scanning_devices"));
+            loadingOverlay_->showWithFade();
+            loadingOverlay_->toFront(false);
+            transportPanel->setTransportEnabled(false);
+        } else {
+            loadingOverlay_->setVisible(false);
+            transportPanel->setTransportEnabled(true);
+        }
+
+        // Wire up callback to update/hide notification when devices finish loading
+        teWrapper->onDevicesLoadingChanged = [this](bool loading, const juce::String& message) {
+            juce::MessageManager::callAsync([this, loading, message]() {
+                // Enable/disable transport based on loading state
+                if (transportPanel) {
+                    transportPanel->setTransportEnabled(!loading);
+                }
+
+                if (loadingOverlay_) {
+                    if (loading) {
+                        loadingOverlay_->setMessage(message);
+                        loadingOverlay_->showWithFade();
+                        loadingOverlay_->toFront(false);
+                    } else {
+                        // Show the final device list briefly, then fade out
+                        loadingOverlay_->setMessage(message);
+                        loadingOverlay_->repaint();
+                        // Fade out after brief delay
+                        // Note: Don't capture 'this' - the overlay handles its own fade timer
+                        if (loadingOverlay_) {
+                            loadingOverlay_->hideWithFade();
+                        }
+                    }
+                }
+            });
+        };
+    } else {
+        // No Tracktion Engine wrapper, don't show notification
+        loadingOverlay_->setVisible(false);
+    }
+}
+
+MainWindow::MainComponent::~MainComponent() {
+    DBG("    [5d] MainComponent::~MainComponent start");
+
+    // Save panel collapse state and sizes to Config for persistence
+    auto& config = Config::getInstance();
+    config.setLeftPanelCollapsed(leftPanelCollapsed);
+    config.setRightPanelCollapsed(rightPanelCollapsed);
+    config.setBottomPanelCollapsed(bottomPanelCollapsed);
+    config.setLeftPanelWidth(leftPanelWidth);
+    config.setRightPanelWidth(rightPanelWidth);
+    config.setBottomPanelHeight(bottomPanelHeight);
+
+    // Remove command manager key listener before destruction
+    removeKeyListener(commandManager.getKeyMappings());
+    commandManager.setFirstCommandTarget(nullptr);
+
+    // Stop position timer before destroying
+    DBG("    [5e] Stopping position timer...");
+    if (positionTimer_) {
+        positionTimer_->stop();
+        positionTimer_.reset();
+    }
+
+    // Unregister audio engine listener before destruction
+    DBG("    [5f] Removing audio engine listener...");
+    if (audioEngine_ && mainView) {
+        mainView->getTimelineController().removeAudioEngineListener(audioEngine_.get());
+    }
+
+    DBG("    [5g] Removing ViewModeController listener...");
+    ViewModeController::getInstance().removeListener(this);
+
+    DBG("    [5g.1] Removing SelectionManager listener...");
+    SelectionManager::getInstance().removeListener(this);
+
+    DBG("    [5g.2] Removing TrackManager listener...");
+    TrackManager::getInstance().removeListener(this);
+
+    aidaw::MidiLearnCoordinator::getInstance().removeListener(this);
+
+    // Clear Toast global host before destroying
+    daw::ui::Toast::setGlobalHost(nullptr);
+    toast_.reset();
+
+    // Explicitly reset unique_ptrs in order to see which one crashes
+    DBG("    [5h] Destroying loadingOverlay_...");
+    loadingOverlay_.reset();
+
+    // Destroy bottomPanel before mainView — BottomPanel has a ScopedListener
+    // on TimelineController (owned by MainView), so it must unregister first.
+    DBG("    [5i] Destroying bottomPanel...");
+    bottomPanel.reset();
+
+    DBG("    [5j] Destroying mainView...");
+    mainView.reset();
+
+    DBG("    [5k] Destroying sessionView...");
+    sessionView.reset();
+
+    DBG("    [5l] Destroying mixerView...");
+    mixerView.reset();
+
+    DBG("    [5m] Destroying panels...");
+    transportPanel.reset();
+    leftPanel.reset();
+    rightPanel.reset();
+    footerBar.reset();
+
+    DBG("    [5m] Destroying resize handles...");
+    transportResizer.reset();
+    leftResizer.reset();
+    rightResizer.reset();
+    bottomResizer.reset();
+
+    DBG("    [5n] Destroying internal audioEngine_...");
+    audioEngine_.reset();
+
+    DBG("    [5o] MainComponent::~MainComponent complete");
+}
+
+// ============================================================================
+// ApplicationCommandTarget Implementation
+// ============================================================================
+
+juce::ApplicationCommandTarget* MainWindow::MainComponent::getNextCommandTarget() {
+    // We're the top-level command target
+    return nullptr;
+}
+
+void MainWindow::MainComponent::paint(juce::Graphics& g) {
+    g.fillAll(DarkTheme::getBackgroundColour());
+}
+
+void MainWindow::MainComponent::resized() {
+    auto& layout = LayoutConfig::getInstance();
+
+    // Re-clamp panel sizes to current window dimensions
+    const int maxLeftWidth = static_cast<int>(getWidth() * layout.maxLeftPanelRatio);
+    const int maxRightWidth = static_cast<int>(getWidth() * layout.maxRightPanelRatio);
+    const int maxBottomHeight = static_cast<int>(getHeight() * layout.maxBottomPanelRatio);
+
+    // Enforce both minimum and maximum so non-collapsed panels stay within valid range
+    const int minLeftWidth = leftPanelCollapsed ? 0 : layout.minPanelWidth;
+    const int minRightWidth = rightPanelCollapsed ? 0 : layout.minPanelWidth;
+    const int minBottomHeight = bottomPanelCollapsed ? 0 : layout.minBottomPanelHeight;
+
+    leftPanelWidth =
+        juce::jlimit(minLeftWidth, std::max(minLeftWidth, maxLeftWidth), leftPanelWidth);
+    rightPanelWidth =
+        juce::jlimit(minRightWidth, std::max(minRightWidth, maxRightWidth), rightPanelWidth);
+    bottomPanelHeight = juce::jlimit(minBottomHeight, std::max(minBottomHeight, maxBottomHeight),
+                                     bottomPanelHeight);
+
+    auto bounds = getLocalBounds();
+
+    // Loading overlay covers entire component
+    if (loadingOverlay_) {
+        loadingOverlay_->setBounds(getLocalBounds());
+    }
+
+    // Toast: top-right corner, sized dynamically by Toast::show()
+    if (toast_) {
+        const int toastPad = 12;
+        toast_->setBounds(getWidth() - toast_->getWidth() - toastPad, toastPad, toast_->getWidth(),
+                          toast_->getHeight());
+        toast_->toFront(false);
+    }
+
+    layoutTransportArea(bounds);
+    layoutFooterArea(bounds);
+    layoutBottomPanel(bounds);
+    layoutSidePanels(bounds);
+    layoutContentArea(bounds);
+}
+
+void MainWindow::MainComponent::layoutTransportArea(juce::Rectangle<int>& bounds) {
+    auto& layout = LayoutConfig::getInstance();
+
+    transportPanel->setBounds(bounds.removeFromTop(transportHeight));
+    transportResizer->setBounds(bounds.removeFromTop(layout.resizeHandleSize));
+    bounds.removeFromTop(layout.panelPadding);  // Spacing below transport
+}
+
+void MainWindow::MainComponent::layoutFooterArea(juce::Rectangle<int>& bounds) {
+    auto& layout = LayoutConfig::getInstance();
+
+    footerBar->setBounds(bounds.removeFromBottom(layout.footerHeight));
+}
+
+void MainWindow::MainComponent::layoutBottomPanel(juce::Rectangle<int>& bounds) {
+    auto& layout = LayoutConfig::getInstance();
+
+    if (bottomPanelVisible) {
+        if (bottomPanelCollapsed) {
+            bottomPanel->setBounds(bounds.removeFromBottom(layout.collapsedPanelSize));
+            bottomPanel->setCollapsed(true);
+            bottomPanel->setVisible(true);
+            bottomResizer->setVisible(false);
+        } else {
+            bottomPanel->setBounds(bounds.removeFromBottom(bottomPanelHeight));
+            bottomResizer->setBounds(bounds.removeFromBottom(layout.resizeHandleSize));
+            bottomPanel->setCollapsed(false);
+            bottomPanel->setVisible(true);
+            bottomResizer->setVisible(true);
+        }
+    } else {
+        bottomPanel->setVisible(false);
+        bottomResizer->setVisible(false);
+    }
+}
+
+void MainWindow::MainComponent::layoutSidePanels(juce::Rectangle<int>& bounds) {
+    auto& layout = LayoutConfig::getInstance();
+
+    // Left panel
+    if (leftPanelVisible) {
+        int effectiveWidth = leftPanelCollapsed ? layout.collapsedPanelSize : leftPanelWidth;
+        leftPanel->setBounds(bounds.removeFromLeft(effectiveWidth));
+        leftPanel->setCollapsed(leftPanelCollapsed);
+        leftPanel->setVisible(true);
+
+        if (!leftPanelCollapsed) {
+            leftResizer->setBounds(bounds.removeFromLeft(layout.resizeHandleSize));
+            leftResizer->setVisible(true);
+        } else {
+            leftResizer->setVisible(false);
+        }
+    } else {
+        leftPanel->setVisible(false);
+        leftResizer->setVisible(false);
+    }
+
+    // Right panel
+    if (rightPanelVisible) {
+        int effectiveWidth = rightPanelCollapsed ? layout.collapsedPanelSize : rightPanelWidth;
+        rightPanel->setBounds(bounds.removeFromRight(effectiveWidth));
+        rightPanel->setCollapsed(rightPanelCollapsed);
+        rightPanel->setVisible(true);
+
+        if (!rightPanelCollapsed) {
+            rightResizer->setBounds(bounds.removeFromRight(layout.resizeHandleSize));
+            rightResizer->setVisible(true);
+        } else {
+            rightResizer->setVisible(false);
+        }
+    } else {
+        rightPanel->setVisible(false);
+        rightResizer->setVisible(false);
+    }
+}
+
+void MainWindow::MainComponent::layoutContentArea(juce::Rectangle<int>& bounds) {
+    mainView->setBounds(bounds);
+    sessionView->setBounds(bounds);
+    mixerView->setBounds(bounds);
+}
+
+void MainWindow::MainComponent::viewModeChanged(ViewMode mode,
+                                                const AudioEngineProfile& /*profile*/) {
+    if (mode != currentViewMode) {
+        currentViewMode = mode;
+        switchToView(mode);
+    }
+}
+
+void MainWindow::MainComponent::selectionTypeChanged(SelectionType newType) {
+    // Auto-expand bottom panel when something is selected
+    if (bottomPanelCollapsed && newType != SelectionType::None) {
+        bottomPanelCollapsed = false;
+        bottomPanel->setCollapsed(false);
+        if (footerBar)
+            footerBar->setBottomPanelCollapsed(false);
+        resized();
+    }
+
+    // Update menu state based on selection
+    auto& selectionManager = SelectionManager::getInstance();
+    bool hasSelection = ((newType == SelectionType::Clip || newType == SelectionType::MultiClip) &&
+                         selectionManager.getSelectedClipCount() > 0) ||
+                        (newType == SelectionType::Note && selectionManager.hasNoteSelection());
+
+    // Time selection also counts as "has selection" for copy/duplicate/delete
+    if (!hasSelection && mainView) {
+        const auto& sel = mainView->getTimelineController().getState().selection;
+        if (sel.isActive() && !sel.visuallyHidden)
+            hasSelection = true;
+    }
+
+    // Get transport and edit cursor state (if available)
+    bool isPlaying = false;
+    bool isRecording = false;
+    bool isLooping = false;
+    bool hasEditCursor = false;
+    if (mainView) {
+        const auto& timelineState = mainView->getTimelineController().getState();
+        isPlaying = timelineState.playhead.isPlaying;
+        isRecording = timelineState.playhead.isRecording;
+        isLooping = timelineState.loop.enabled;
+        hasEditCursor = timelineState.editCursorPosition >= 0;
+    }
+
+    MenuManager::getInstance().updateMenuStates(
+        false, false, hasSelection, hasEditCursor, leftPanelVisible, rightPanelVisible,
+        bottomPanelVisible, isPlaying, isRecording, isLooping);
+}
+
+void MainWindow::MainComponent::trackPropertyChanged(int /*trackId*/) {
+    if (transportPanel)
+        transportPanel->setAnyTrackInSessionMode(
+            TrackManager::getInstance().isAnyTrackInSessionMode());
+}
+
+void MainWindow::MainComponent::switchToView(ViewMode mode) {
+    // Hide all views first
+    mainView->setVisible(false);
+    sessionView->setVisible(false);
+    mixerView->setVisible(false);
+
+    // Show the appropriate view
+    switch (mode) {
+        case ViewMode::Live:
+            sessionView->setVisible(true);
+            break;
+        case ViewMode::Mix:
+            mixerView->setVisible(true);
+            break;
+        case ViewMode::Arrange:
+        case ViewMode::Master:
+            // Arrange and Master use MainView (timeline)
+            mainView->setVisible(true);
+            break;
+    }
+
+    DBG("Switched to view mode: " << getViewModeName(mode));
+}
+
+void MainWindow::MainComponent::showLoadingMessage(const juce::String& message) {
+    if (loadingOverlay_) {
+        loadingOverlay_->setMessage(message);
+        loadingOverlay_->showWithFade();
+        loadingOverlay_->toFront(false);
+    }
+}
+
+void MainWindow::MainComponent::hideLoadingMessage() {
+    if (loadingOverlay_) {
+        loadingOverlay_->hideWithFade();
+    }
+}
+
+void MainWindow::setupMenuBar() {
+    setupMenuCallbacks();
+
+#if JUCE_MAC
+    // On macOS, use the native menu bar
+    juce::MenuBarModel::setMacMainMenu(MenuManager::getInstance().getMenuBarModel());
+#else
+    // On other platforms, show menu bar in window
+    setMenuBar(MenuManager::getInstance().getMenuBarModel());
+#endif
+}
+
+// ============================================================================
+// MidiLearnCoordinatorListener
+// ============================================================================
+
+void MainWindow::MainComponent::midiLearnStateChanged(const aidaw::ChainNodePath& /*path*/,
+                                                      int /*paramIndex*/,
+                                                      aidaw::ControlTarget::Kind /*owner*/,
+                                                      bool learning) {
+    if (learning) {
+        daw::ui::Toast::showGlobal("MIDI Learn armed - move a controller...", 5000);
+    }
+}
+
+void MainWindow::MainComponent::midiLearnCompleted(const aidaw::ChainNodePath& /*path*/,
+                                                   int /*paramIndex*/,
+                                                   aidaw::ControlTarget::Kind /*owner*/,
+                                                   const aidaw::Binding& binding) {
+    juce::String msg = "MIDI mapped";
+    if (binding.source.msgType == aidaw::BindingMsgType::CC)
+        msg = "MIDI CC " + juce::String(binding.source.number) + " mapped";
+    else if (binding.source.msgType == aidaw::BindingMsgType::Note)
+        msg = "MIDI Note " + juce::String(binding.source.number) + " mapped";
+    daw::ui::Toast::showGlobal(msg, 2500);
+}
+
+void MainWindow::MainComponent::midiLearnCleared(const aidaw::ChainNodePath& /*path*/,
+                                                 int /*paramIndex*/,
+                                                 aidaw::ControlTarget::Kind /*owner*/,
+                                                 int numRemoved) {
+    juce::String msg = numRemoved == 1 ? "MIDI mapping cleared"
+                                       : juce::String(numRemoved) + " MIDI mappings cleared";
+    daw::ui::Toast::showGlobal(msg, 2000);
+}
+
+}  // namespace aidaw
