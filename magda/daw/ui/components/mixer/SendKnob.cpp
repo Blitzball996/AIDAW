@@ -6,7 +6,7 @@
 namespace magda {
 
 SendKnob::SendKnob() {
-    setTooltip("Send level");
+    // setTooltip("Send level");
 }
 
 SendKnob::~SendKnob() = default;
@@ -138,7 +138,7 @@ void SendKnob::setSendName(const juce::String& name) {
 
 void SendKnob::setDestinationName(const juce::String& name) {
     destName_ = name;
-    setTooltip("Send to: " + name);
+    // setTooltip("Send to: " + name);
 }
 
 }  // namespace magda

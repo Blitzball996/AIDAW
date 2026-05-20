@@ -6,7 +6,7 @@
 namespace magda {
 
 MetronomeButton::MetronomeButton() {
-    setTooltip("Metronome (right-click for settings)");
+    // setTooltip("Metronome (right-click for settings)");
 }
 
 MetronomeButton::~MetronomeButton() = default;
