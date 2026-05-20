@@ -309,6 +309,8 @@ target_sources(magda_plugin_scanner PRIVATE
 
 add_subdirectory(core)
 add_subdirectory(audio)
+add_subdirectory(browser)
+add_subdirectory(midi)
 add_subdirectory(export)
 add_subdirectory(engine)
 add_subdirectory(project)
@@ -413,6 +415,10 @@ target_include_directories(magda_daw
     ${CMAKE_CURRENT_SOURCE_DIR}/interfaces
     ${CMAKE_CURRENT_SOURCE_DIR}/audio
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/operations
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/trigger
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/vca
+    ${CMAKE_CURRENT_SOURCE_DIR}/browser
+    ${CMAKE_CURRENT_SOURCE_DIR}/midi
     ${CMAKE_CURRENT_SOURCE_DIR}/export
     ${CMAKE_CURRENT_SOURCE_DIR}/engine
     ${CMAKE_CURRENT_SOURCE_DIR}/project

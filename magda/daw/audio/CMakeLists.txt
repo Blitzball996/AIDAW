@@ -397,6 +397,8 @@ target_sources(magda_daw PRIVATE
 )
 
 add_subdirectory(operations)
+add_subdirectory(trigger)
+add_subdirectory(vca)
 
 target_sources(magda_daw_app PRIVATE
     AudioEngineOptimizer.cpp
