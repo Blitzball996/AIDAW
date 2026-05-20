@@ -318,6 +318,7 @@ add_subdirectory(music)
 add_subdirectory(api)
 add_subdirectory(interfaces)
 add_subdirectory(profiling)
+add_subdirectory(control)
 add_subdirectory(ui)
 
 # =============================================================================
@@ -352,6 +353,8 @@ target_link_libraries(magda_daw
     juce::juce_audio_devices
     juce::juce_audio_formats
     juce::juce_audio_utils
+    juce::juce_dsp
+    juce::juce_osc
     juce::juce_gui_basics
     juce::juce_gui_extra
     tracktion::tracktion_engine
@@ -417,6 +420,10 @@ target_include_directories(magda_daw
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/operations
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/trigger
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/vca
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/surround
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/effects
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/stretch
+    ${CMAKE_CURRENT_SOURCE_DIR}/control
     ${CMAKE_CURRENT_SOURCE_DIR}/browser
     ${CMAKE_CURRENT_SOURCE_DIR}/midi
     ${CMAKE_CURRENT_SOURCE_DIR}/export
