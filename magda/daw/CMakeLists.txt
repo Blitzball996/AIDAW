@@ -320,6 +320,8 @@ add_subdirectory(interfaces)
 add_subdirectory(profiling)
 add_subdirectory(control)
 add_subdirectory(ui)
+add_subdirectory(video)
+add_subdirectory(instruments)
 
 # =============================================================================
 # Linking, compile defs, includes
@@ -423,6 +425,10 @@ target_include_directories(magda_daw
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/surround
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/effects
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/stretch
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/routing
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/metronome
+    ${CMAKE_CURRENT_SOURCE_DIR}/video
+    ${CMAKE_CURRENT_SOURCE_DIR}/instruments
     ${CMAKE_CURRENT_SOURCE_DIR}/control
     ${CMAKE_CURRENT_SOURCE_DIR}/browser
     ${CMAKE_CURRENT_SOURCE_DIR}/midi
