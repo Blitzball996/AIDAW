@@ -56,6 +56,9 @@ target_sources(magda_daw PRIVATE
     controllers/ControllerProfile.cpp
     controllers/ControllerProfileRegistry.cpp
     controllers/MidiLearnCoordinator.cpp
+    # Location/marker system
+    LocationManager.cpp
+    LocationCommands.cpp
     # Headers (listed for IDE visibility)
     Config.hpp
     AppPaths.hpp
@@ -100,4 +103,7 @@ target_sources(magda_daw PRIVATE
     AutomationManager.hpp
     PresetManager.hpp
     PluginPresetScanner.hpp
+    LocationTypes.hpp
+    LocationManager.hpp
+    LocationCommands.hpp
 )

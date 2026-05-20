@@ -396,6 +396,8 @@ target_sources(magda_daw PRIVATE
     plugins/StepSequencerPlugin.hpp
 )
 
+add_subdirectory(operations)
+
 target_sources(magda_daw_app PRIVATE
     AudioEngineOptimizer.cpp
     AudioEngineOptimizer.hpp
