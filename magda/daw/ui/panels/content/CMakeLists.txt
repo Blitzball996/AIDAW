@@ -17,6 +17,9 @@ target_sources(magda_daw_app PRIVATE
     WaveformEditorContent.cpp
     AudioClipPropertiesContent.cpp
     ChordPanelContent.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/BeatBoxContent.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ClipBrowserContent.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/QuantizeDialog.cpp
     PanelContent.hpp
     PanelContentFactory.hpp
     PluginBrowserContent.hpp
@@ -30,6 +33,9 @@ target_sources(magda_daw_app PRIVATE
     TrackChainContent.hpp
     PianoRollContent.hpp
     WaveformEditorContent.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/BeatBoxContent.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ClipBrowserContent.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/QuantizeDialog.hpp
 )
 
 add_subdirectory(inspector)

@@ -11,6 +11,8 @@ target_sources(magda_daw_app PRIVATE
     TrackManagerDialog.cpp
     AboutDialog.cpp
     SplashScreen.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ExportDialog.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/AudioOpsMenu.cpp
     AISettingsDialog.hpp
     AudioSettingsDialog.hpp
     ChainTreeDialog.hpp
@@ -22,4 +24,6 @@ target_sources(magda_daw_app PRIVATE
     TrackManagerDialog.hpp
     AboutDialog.hpp
     SplashScreen.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ExportDialog.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/AudioOpsMenu.hpp
 )

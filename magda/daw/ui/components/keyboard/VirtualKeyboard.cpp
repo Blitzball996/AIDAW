@@ -1,0 +1,367 @@
+#include "VirtualKeyboard.hpp"
+
+#include "../../themes/DarkTheme.hpp"
+#include "../../themes/FontManager.hpp"
+
+namespace magda {
+
+//==============================================================================
+// MidiRecorder
+//==============================================================================
+
+void MidiRecorder::startRecording(double transportPositionBeats) {
+    recording_ = true;
+    startPositionBeats_ = transportPositionBeats;
+}
+
+void MidiRecorder::stopRecording() {
+    recording_ = false;
+}
+
+void MidiRecorder::addNoteOn(int noteNumber, int velocity, double currentPositionBeats) {
+    if (!recording_) return;
+    events_.push_back({noteNumber, velocity, currentPositionBeats - startPositionBeats_, true});
+}
+
+void MidiRecorder::addNoteOff(int noteNumber, double currentPositionBeats) {
+    if (!recording_) return;
+    events_.push_back({noteNumber, 0, currentPositionBeats - startPositionBeats_, false});
+}
+
+void MidiRecorder::clearEvents() {
+    events_.clear();
+}
+
+//==============================================================================
+// VirtualKeyboard - Key mapping
+//==============================================================================
+
+// Maps computer keys to note offsets within one octave
+// A=C(0), W=C#(1), S=D(2), E=D#(3), D=E(4), F=F(5), T=F#(6),
+// G=G(7), Y=G#(8), H=A(9), U=A#(10), J=B(11), K=C+1(12)
+const std::array<VirtualKeyboard::KeyInfo, 13> VirtualKeyboard::keyMapping_ = {{
+    {0,  false, 'A', "C"},
+    {1,  true,  'W', "C#"},
+    {2,  false, 'S', "D"},
+    {3,  true,  'E', "D#"},
+    {4,  false, 'D', "E"},
+    {5,  false, 'F', "F"},
+    {6,  true,  'T', "F#"},
+    {7,  false, 'G', "G"},
+    {8,  true,  'Y', "G#"},
+    {9,  false, 'H', "A"},
+    {10, true,  'U', "A#"},
+    {11, false, 'J', "B"},
+    {12, false, 'K', "C"},
+}};
+
+//==============================================================================
+// VirtualKeyboard
+//==============================================================================
+
+VirtualKeyboard::VirtualKeyboard() {
+    setWantsKeyboardFocus(true);
+}
+
+VirtualKeyboard::~VirtualKeyboard() = default;
+
+void VirtualKeyboard::paint(juce::Graphics& g) {
+    auto bounds = getLocalBounds();
+    g.fillAll(DarkTheme::getColour(DarkTheme::PANEL_BACKGROUND));
+
+    if (bounds.getWidth() < 10 || bounds.getHeight() < 10) return;
+
+    const int whiteKeyWidth = bounds.getWidth() / NUM_WHITE_KEYS;
+    const int whiteKeyHeight = bounds.getHeight();
+    const int blackKeyWidth = whiteKeyWidth * 2 / 3;
+    const int blackKeyHeight = whiteKeyHeight * 3 / 5;
+
+    // Draw white keys first
+    int whiteIdx = 0;
+    for (int octave = 0; octave < 3; ++octave) {
+        int octaveBase = (baseOctave_ + octave) * 12;
+        for (int note = 0; note < 12; ++note) {
+            if (isBlackKey(note)) continue;
+
+            int midiNote = octaveBase + note;
+            auto keyRect = juce::Rectangle<int>(whiteIdx * whiteKeyWidth, 0,
+                                                whiteKeyWidth - 1, whiteKeyHeight);
+
+            bool isPressed = pressedNotes_.count(midiNote) > 0;
+
+            if (isPressed) {
+                g.setColour(DarkTheme::getColour(DarkTheme::ACCENT_BLUE).withAlpha(0.6f));
+            } else {
+                g.setColour(juce::Colours::white);
+            }
+            g.fillRect(keyRect);
+
+            g.setColour(juce::Colour(0xFF333333));
+            g.drawRect(keyRect);
+
+            // Draw key label at bottom
+            if (note == 0) {
+                g.setColour(juce::Colour(0xFF666666));
+                g.setFont(FontManager::getInstance().getUIFont(10.0f));
+                g.drawText("C" + juce::String(baseOctave_ + octave),
+                           keyRect.removeFromBottom(16), juce::Justification::centred);
+            }
+
+            // Draw computer key label
+            for (auto& km : keyMapping_) {
+                if (km.noteOffset == note && !km.isBlack && km.computerKey != 0) {
+                    if (octave == 0 || (octave == 0 && note <= 12)) {
+                        // Only show labels for first octave mapping
+                        if (octave == 0) {
+                            g.setColour(juce::Colour(0xFF999999));
+                            g.setFont(FontManager::getInstance().getUIFont(9.0f));
+                            auto labelArea = juce::Rectangle<int>(
+                                whiteIdx * whiteKeyWidth, whiteKeyHeight - 30,
+                                whiteKeyWidth - 1, 14);
+                            g.drawText(juce::String::charToString(km.computerKey),
+                                       labelArea, juce::Justification::centred);
+                        }
+                    }
+                    break;
+                }
+            }
+
+            whiteIdx++;
+        }
+    }
+
+    // Draw black keys on top
+    whiteIdx = 0;
+    for (int octave = 0; octave < 3; ++octave) {
+        int octaveBase = (baseOctave_ + octave) * 12;
+        int localWhite = 0;
+        for (int note = 0; note < 12; ++note) {
+            if (isBlackKey(note)) {
+                int midiNote = octaveBase + note;
+                // Black key position: offset from the left edge of the preceding white key
+                int xPos = (whiteIdx + localWhite) * whiteKeyWidth - blackKeyWidth / 2;
+                auto keyRect = juce::Rectangle<int>(xPos, 0, blackKeyWidth, blackKeyHeight);
+
+                bool isPressed = pressedNotes_.count(midiNote) > 0;
+
+                if (isPressed) {
+                    g.setColour(DarkTheme::getColour(DarkTheme::ACCENT_BLUE).withAlpha(0.8f));
+                } else {
+                    g.setColour(juce::Colour(0xFF222222));
+                }
+                g.fillRect(keyRect);
+
+                g.setColour(juce::Colour(0xFF111111));
+                g.drawRect(keyRect);
+            } else {
+                localWhite++;
+            }
+        }
+        whiteIdx += 7;  // 7 white keys per octave
+    }
+
+    // Draw octave indicator
+    g.setColour(DarkTheme::getColour(DarkTheme::TEXT_SECONDARY));
+    g.setFont(FontManager::getInstance().getUIFont(11.0f));
+    g.drawText("Oct: " + juce::String(baseOctave_) + "  [Z/X]",
+               bounds.removeFromBottom(18).removeFromRight(120),
+               juce::Justification::centredRight);
+
+    // Recording indicator
+    if (recorder_.isRecording()) {
+        g.setColour(juce::Colours::red);
+        g.fillEllipse(bounds.getX() + 4.0f, bounds.getBottom() - 14.0f, 8.0f, 8.0f);
+        g.setColour(DarkTheme::getColour(DarkTheme::TEXT_PRIMARY));
+        g.drawText("REC", bounds.getX() + 16, bounds.getBottom() - 16, 30, 14,
+                   juce::Justification::centredLeft);
+    }
+}
+
+void VirtualKeyboard::resized() {
+    // No child components to layout
+}
+
+bool VirtualKeyboard::keyPressed(const juce::KeyPress& key, juce::Component*) {
+    auto keyChar = static_cast<juce::juce_wchar>(juce::CharacterFunctions::toUpperCase(
+        static_cast<juce::juce_wchar>(key.getTextCharacter())));
+
+    // Octave shift
+    if (keyChar == 'Z') {
+        setBaseOctave(juce::jmax(0, baseOctave_ - 1));
+        return true;
+    }
+    if (keyChar == 'X') {
+        setBaseOctave(juce::jmin(8, baseOctave_ + 1));
+        return true;
+    }
+
+    // Check if already held
+    if (heldComputerKeys_.count(keyChar) > 0) return true;
+
+    int note = computerKeyToNote(keyChar);
+    if (note >= 0) {
+        heldComputerKeys_.insert(keyChar);
+        triggerNoteOn(note);
+        return true;
+    }
+
+    return false;
+}
+
+bool VirtualKeyboard::keyStateChanged(bool /*isKeyDown*/, juce::Component*) {
+    // Check for released keys
+    std::vector<juce::juce_wchar> toRelease;
+
+    for (auto keyChar : heldComputerKeys_) {
+        if (!juce::KeyPress::isKeyCurrentlyDown(keyChar) &&
+            !juce::KeyPress::isKeyCurrentlyDown(
+                juce::CharacterFunctions::toLowerCase(keyChar))) {
+            toRelease.push_back(keyChar);
+        }
+    }
+
+    for (auto keyChar : toRelease) {
+        heldComputerKeys_.erase(keyChar);
+        int note = computerKeyToNote(keyChar);
+        if (note >= 0) {
+            triggerNoteOff(note);
+        }
+    }
+
+    return !toRelease.empty();
+}
+
+void VirtualKeyboard::mouseDown(const juce::MouseEvent& e) {
+    int note = getNoteAtPosition(e.getPosition());
+    if (note >= 0) {
+        mouseNote_ = note;
+        triggerNoteOn(note);
+    }
+}
+
+void VirtualKeyboard::mouseDrag(const juce::MouseEvent& e) {
+    int note = getNoteAtPosition(e.getPosition());
+    if (note != mouseNote_) {
+        if (mouseNote_ >= 0) triggerNoteOff(mouseNote_);
+        if (note >= 0) triggerNoteOn(note);
+        mouseNote_ = note;
+    }
+}
+
+void VirtualKeyboard::mouseUp(const juce::MouseEvent&) {
+    if (mouseNote_ >= 0) {
+        triggerNoteOff(mouseNote_);
+        mouseNote_ = -1;
+    }
+}
+
+void VirtualKeyboard::setRecording(bool shouldRecord, double transportPositionBeats) {
+    if (shouldRecord)
+        recorder_.startRecording(transportPositionBeats);
+    else
+        recorder_.stopRecording();
+    repaint();
+}
+
+void VirtualKeyboard::setBaseOctave(int octave) {
+    if (octave != baseOctave_) {
+        // Release all currently held notes before changing octave
+        for (int note : pressedNotes_) {
+            if (onNoteOff) onNoteOff(note);
+        }
+        pressedNotes_.clear();
+        heldComputerKeys_.clear();
+
+        baseOctave_ = juce::jlimit(0, 8, octave);
+        repaint();
+    }
+}
+
+void VirtualKeyboard::setVelocity(int velocity) {
+    velocity_ = juce::jlimit(1, 127, velocity);
+}
+
+int VirtualKeyboard::computerKeyToNote(juce::juce_wchar key) const {
+    for (auto& km : keyMapping_) {
+        if (static_cast<juce::juce_wchar>(km.computerKey) == key) {
+            return baseOctave_ * 12 + km.noteOffset;
+        }
+    }
+    return -1;
+}
+
+bool VirtualKeyboard::isBlackKey(int noteInOctave) const {
+    // C#, D#, F#, G#, A# are black keys
+    return noteInOctave == 1 || noteInOctave == 3 || noteInOctave == 6 ||
+           noteInOctave == 8 || noteInOctave == 10;
+}
+
+int VirtualKeyboard::getNoteAtPosition(juce::Point<int> pos) const {
+    auto bounds = getLocalBounds();
+    if (!bounds.contains(pos)) return -1;
+
+    const int whiteKeyWidth = bounds.getWidth() / NUM_WHITE_KEYS;
+    const int blackKeyWidth = whiteKeyWidth * 2 / 3;
+    const int blackKeyHeight = bounds.getHeight() * 3 / 5;
+
+    // Check black keys first (they're on top)
+    if (pos.getY() < blackKeyHeight) {
+        int whiteIdx = 0;
+        for (int octave = 0; octave < 3; ++octave) {
+            int localWhite = 0;
+            for (int note = 0; note < 12; ++note) {
+                if (isBlackKey(note)) {
+                    int xPos = (whiteIdx + localWhite) * whiteKeyWidth - blackKeyWidth / 2;
+                    if (pos.getX() >= xPos && pos.getX() < xPos + blackKeyWidth) {
+                        return (baseOctave_ + octave) * 12 + note;
+                    }
+                } else {
+                    localWhite++;
+                }
+            }
+            whiteIdx += 7;
+        }
+    }
+
+    // Check white keys
+    int whiteKeyIndex = pos.getX() / whiteKeyWidth;
+    if (whiteKeyIndex >= 0 && whiteKeyIndex < NUM_WHITE_KEYS) {
+        int octave = whiteKeyIndex / 7;
+        int whiteInOctave = whiteKeyIndex % 7;
+        // Map white key index to note: 0=C, 1=D, 2=E, 3=F, 4=G, 5=A, 6=B
+        static const int whiteToNote[] = {0, 2, 4, 5, 7, 9, 11};
+        if (whiteInOctave < 7) {
+            return (baseOctave_ + octave) * 12 + whiteToNote[whiteInOctave];
+        }
+    }
+
+    return -1;
+}
+
+void VirtualKeyboard::triggerNoteOn(int noteNumber) {
+    if (noteNumber < 0 || noteNumber > 127) return;
+    pressedNotes_.insert(noteNumber);
+
+    if (onNoteOn) onNoteOn(noteNumber, velocity_);
+
+    if (recorder_.isRecording() && getTransportPosition) {
+        recorder_.addNoteOn(noteNumber, velocity_, getTransportPosition());
+    }
+
+    repaint();
+}
+
+void VirtualKeyboard::triggerNoteOff(int noteNumber) {
+    if (noteNumber < 0 || noteNumber > 127) return;
+    pressedNotes_.erase(noteNumber);
+
+    if (onNoteOff) onNoteOff(noteNumber);
+
+    if (recorder_.isRecording() && getTransportPosition) {
+        recorder_.addNoteOff(noteNumber, getTransportPosition());
+    }
+
+    repaint();
+}
+
+}  // namespace magda
