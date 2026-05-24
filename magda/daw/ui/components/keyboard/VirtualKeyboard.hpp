@@ -94,7 +94,7 @@ class VirtualKeyboard : public juce::Component, public juce::KeyListener {
     };
 
     // Piano key layout for one octave (C to B)
-    static const std::array<KeyInfo, 13> keyMapping_;
+    static const std::array<KeyInfo, 17> keyMapping_;
 
     int baseOctave_ = 4;  // Middle C octave
     int velocity_ = 100;

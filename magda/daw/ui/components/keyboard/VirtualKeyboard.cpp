@@ -39,7 +39,7 @@ void MidiRecorder::clearEvents() {
 // Maps computer keys to note offsets within one octave
 // A=C(0), W=C#(1), S=D(2), E=D#(3), D=E(4), F=F(5), T=F#(6),
 // G=G(7), Y=G#(8), H=A(9), U=A#(10), J=B(11), K=C+1(12)
-const std::array<VirtualKeyboard::KeyInfo, 13> VirtualKeyboard::keyMapping_ = {{
+const std::array<VirtualKeyboard::KeyInfo, 17> VirtualKeyboard::keyMapping_ = {{
     {0,  false, 'A', "C"},
     {1,  true,  'W', "C#"},
     {2,  false, 'S', "D"},
@@ -53,6 +53,10 @@ const std::array<VirtualKeyboard::KeyInfo, 13> VirtualKeyboard::keyMapping_ = {{
     {10, true,  'U', "A#"},
     {11, false, 'J', "B"},
     {12, false, 'K', "C"},
+    {13, true,  'O', "C#"},
+    {14, false, 'L', "D"},
+    {15, true,  'P', "D#"},
+    {16, false, ';', "E"},
 }};
 
 //==============================================================================

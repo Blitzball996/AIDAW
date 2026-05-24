@@ -2,6 +2,10 @@
 
 #include "../../themes/DarkTheme.hpp"
 #include "../../themes/FontManager.hpp"
+#include "audio/AudioBridge.hpp"
+#include "audio/MidiBridge.hpp"
+#include "core/TrackManager.hpp"
+#include "engine/AudioEngine.hpp"
 
 namespace magda::daw::ui {
 
@@ -76,6 +80,30 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
     helpLabel_.setColour(juce::Label::textColourId,
                          DarkTheme::getSecondaryTextColour().withAlpha(0.6f));
     addAndMakeVisible(helpLabel_);
+
+    // Connect MIDI output — send notes to the audio engine
+    keyboard_.onNoteOn = [](int noteNumber, int velocity) {
+        auto* engine = magda::TrackManager::getInstance().getAudioEngine();
+        if (!engine) return;
+        auto* bridge = engine->getAudioBridge();
+        if (!bridge) return;
+        auto* vmd = bridge->getQwertyMidiDevice();
+        if (!vmd) return;
+        vmd->keyboardState.noteOn(1, noteNumber, static_cast<float>(velocity) / 127.0f);
+        if (auto* midiBridge = engine->getMidiBridge())
+            midiBridge->broadcastSynthesizedNote(vmd->getDeviceID(), noteNumber, velocity, true);
+    };
+    keyboard_.onNoteOff = [](int noteNumber) {
+        auto* engine = magda::TrackManager::getInstance().getAudioEngine();
+        if (!engine) return;
+        auto* bridge = engine->getAudioBridge();
+        if (!bridge) return;
+        auto* vmd = bridge->getQwertyMidiDevice();
+        if (!vmd) return;
+        vmd->keyboardState.noteOff(1, noteNumber, 0.0f);
+        if (auto* midiBridge = engine->getMidiBridge())
+            midiBridge->broadcastSynthesizedNote(vmd->getDeviceID(), noteNumber, 0, false);
+    };
 }
 
 void VirtualKeyboardContent::paint(juce::Graphics& g) {
