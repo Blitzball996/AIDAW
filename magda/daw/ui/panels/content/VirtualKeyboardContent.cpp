@@ -2,10 +2,10 @@
 
 #include "../../themes/DarkTheme.hpp"
 #include "../../themes/FontManager.hpp"
-#include "audio/AudioBridge.hpp"
-#include "audio/MidiBridge.hpp"
-#include "core/TrackManager.hpp"
-#include "engine/AudioEngine.hpp"
+#include "../../../audio/AudioBridge.hpp"
+#include "../../../audio/MidiBridge.hpp"
+#include "../../../core/TrackManager.hpp"
+#include "../../../engine/AudioEngine.hpp"
 
 namespace magda::daw::ui {
 
@@ -74,14 +74,14 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
     addAndMakeVisible(recordBtn_);
 
     // Help label with key mapping hints
-    helpLabel_.setText("A-J: C-B | K-;: C-E+1 | Z/X: Oct-/+ | Black: W E T Y U O P",
+    helpLabel_.setText("A-; ': C-F (2 oct) | Black: W E T Y U O P | Z/X: Oct-/+",
                        juce::dontSendNotification);
     helpLabel_.setFont(FontManager::getInstance().getUIFont(9.0f));
     helpLabel_.setColour(juce::Label::textColourId,
                          DarkTheme::getSecondaryTextColour().withAlpha(0.6f));
     addAndMakeVisible(helpLabel_);
 
-    // Connect MIDI output — send notes to the audio engine
+    // Connect MIDI output — send notes via AudioBridge's QWERTY MIDI device
     keyboard_.onNoteOn = [](int noteNumber, int velocity) {
         auto* engine = magda::TrackManager::getInstance().getAudioEngine();
         if (!engine) return;
@@ -90,7 +90,8 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         auto* vmd = bridge->getQwertyMidiDevice();
         if (!vmd) return;
         vmd->keyboardState.noteOn(1, noteNumber, static_cast<float>(velocity) / 127.0f);
-        if (auto* midiBridge = engine->getMidiBridge())
+        auto* midiBridge = engine->getMidiBridge();
+        if (midiBridge)
             midiBridge->broadcastSynthesizedNote(vmd->getDeviceID(), noteNumber, velocity, true);
     };
     keyboard_.onNoteOff = [](int noteNumber) {
@@ -101,7 +102,8 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         auto* vmd = bridge->getQwertyMidiDevice();
         if (!vmd) return;
         vmd->keyboardState.noteOff(1, noteNumber, 0.0f);
-        if (auto* midiBridge = engine->getMidiBridge())
+        auto* midiBridge = engine->getMidiBridge();
+        if (midiBridge)
             midiBridge->broadcastSynthesizedNote(vmd->getDeviceID(), noteNumber, 0, false);
     };
 }
@@ -139,6 +141,8 @@ void VirtualKeyboardContent::resized() {
 void VirtualKeyboardContent::onActivated() {
     if (auto* topLevel = getTopLevelComponent())
         topLevel->addKeyListener(&keyboard_);
+    keyboard_.setWantsKeyboardFocus(true);
+    keyboard_.grabKeyboardFocus();
 }
 
 void VirtualKeyboardContent::onDeactivated() {

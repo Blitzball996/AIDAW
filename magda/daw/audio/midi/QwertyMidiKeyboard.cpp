@@ -66,6 +66,10 @@ int QwertyMidiKeyboard::keyToNote(int keyCode) const {
             semitone = 4;
             octaveOffset = 1;
             break;  // E+1
+        case '\'':
+            semitone = 5;
+            octaveOffset = 1;
+            break;  // F+1
 
         // Upper row: black keys
         case 'W':

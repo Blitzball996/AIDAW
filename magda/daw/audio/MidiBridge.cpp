@@ -411,11 +411,17 @@ void MidiBridge::broadcastSynthesizedNote(const juce::String& sourceDeviceId, in
             TrackManager::getInstance().triggerMidiNoteOff(trackId);
         }
 
-        // Preview queue push is armed-only.
+        // Preview/recording: instrument tracks always receive MIDI for live preview,
+        // audio tracks require arm for recording only.
         if (!recordingQueue_ || !transportPosition_)
             continue;
         auto* trackInfo = TrackManager::getInstance().getTrack(trackId);
-        if (!trackInfo || !trackInfo->recordArmed)
+        if (!trackInfo)
+            continue;
+
+        // Instrument/MIDI tracks: always pass through for live preview
+        bool isInstrumentTrack = trackInfo->hasInstrument();
+        if (!isInstrumentTrack && !trackInfo->recordArmed)
             continue;
 
         RecordingNoteEvent evt;
