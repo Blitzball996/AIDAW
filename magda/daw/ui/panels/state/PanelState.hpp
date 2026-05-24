@@ -99,9 +99,10 @@ struct AllPanelStates {
 inline AllPanelStates getDefaultPanelStates() {
     AllPanelStates states;
 
-    // Left Panel: Plugin and Media Explorer browsers
+    // Left Panel: Plugin and Media Explorer browsers, Clip Browser
     states.leftPanel.location = PanelLocation::Left;
-    states.leftPanel.tabs = {PanelContentType::PluginBrowser, PanelContentType::MediaExplorer};
+    states.leftPanel.tabs = {PanelContentType::PluginBrowser, PanelContentType::MediaExplorer,
+                             PanelContentType::ClipBrowser};
     states.leftPanel.activeTabIndex = 0;
     states.leftPanel.collapsed = false;
 
@@ -111,11 +112,13 @@ inline AllPanelStates getDefaultPanelStates() {
     states.rightPanel.activeTabIndex = 0;
     states.rightPanel.collapsed = false;
 
-    // Bottom Panel: Empty (no selection), Piano Roll, Drum Grid, Waveform Editor, Track Chain
+    // Bottom Panel: Empty (no selection), Piano Roll, Drum Grid, Waveform Editor, Track Chain,
+    //               Beat Box, Virtual Keyboard
     states.bottomPanel.location = PanelLocation::Bottom;
-    states.bottomPanel.tabs = {PanelContentType::Empty, PanelContentType::PianoRoll,
+    states.bottomPanel.tabs = {PanelContentType::Empty,           PanelContentType::PianoRoll,
                                PanelContentType::DrumGridClipView, PanelContentType::WaveformEditor,
-                               PanelContentType::TrackChain};
+                               PanelContentType::TrackChain,       PanelContentType::BeatBox,
+                               PanelContentType::VirtualKeyboard};
     states.bottomPanel.activeTabIndex = 0;
     states.bottomPanel.collapsed = false;
 

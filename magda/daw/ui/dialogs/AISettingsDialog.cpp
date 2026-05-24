@@ -64,11 +64,15 @@ const std::vector<ProviderInfo>& getKnownProviders() {
          magda::model::DEEPSEEK_CHAT, BinaryData::deepseek_svg, BinaryData::deepseek_svgSize},
         {magda::provider::OPENROUTER, "OpenRouter", magda::provider::OPENROUTER, "",
          magda::model::LLAMA_70B, BinaryData::openrouter_svg, BinaryData::openrouter_svgSize},
+        {magda::provider::CUSTOM, "Custom (Relay)", magda::provider::CUSTOM, "",
+         "", nullptr, 0},
     };
     return providers;
 }
 
 std::unique_ptr<juce::Drawable> createProviderIcon(const ProviderInfo& info) {
+    if (info.iconData == nullptr || info.iconDataSize == 0)
+        return nullptr;
     return juce::Drawable::createFromImageData(info.iconData,
                                                static_cast<size_t>(info.iconDataSize));
 }
@@ -105,12 +109,14 @@ class AISettingsDialog::CloudPage : public juce::Component {
                 juce::PopupMenu::Item item;
                 item.text = p.displayName;
                 item.itemID = itemId++;
-                item.image = std::move(icon);
+                if (icon)
+                    item.image = std::move(icon);
                 menu->addItem(item);
             }
         }
         providerCombo_.setSelectedId(1, juce::dontSendNotification);
         styleCombo(providerCombo_);
+        providerCombo_.onChange = [this]() { onProviderChanged(); };
         addAndMakeVisible(providerCombo_);
 
         // API key input
@@ -120,6 +126,25 @@ class AISettingsDialog::CloudPage : public juce::Component {
 
         styleEditor(keyEditor_, "Enter API key...", true);
         addAndMakeVisible(keyEditor_);
+
+        // Custom relay fields (hidden by default)
+        urlLabel_.setText("Base URL", juce::dontSendNotification);
+        styleLabel(urlLabel_);
+        urlLabel_.setVisible(false);
+        addAndMakeVisible(urlLabel_);
+
+        styleEditor(urlEditor_, "https://your-relay.com/v1");
+        urlEditor_.setVisible(false);
+        addAndMakeVisible(urlEditor_);
+
+        modelLabel_.setText("Model", juce::dontSendNotification);
+        styleLabel(modelLabel_);
+        modelLabel_.setVisible(false);
+        addAndMakeVisible(modelLabel_);
+
+        styleEditor(modelEditor_, "gpt-4o / claude-3.5-sonnet / ...");
+        modelEditor_.setVisible(false);
+        addAndMakeVisible(modelEditor_);
 
         // Test button
         testBtn_.setButtonText("Test");
@@ -157,6 +182,19 @@ class AISettingsDialog::CloudPage : public juce::Component {
         providerLabel_.setBounds(row.removeFromLeft(labelW));
         providerCombo_.setBounds(row.reduced(0, 2));
         bounds.removeFromTop(4);
+
+        // Custom relay fields (URL + Model)
+        if (urlLabel_.isVisible()) {
+            row = bounds.removeFromTop(rowH);
+            urlLabel_.setBounds(row.removeFromLeft(labelW));
+            urlEditor_.setBounds(row.reduced(0, 1));
+            bounds.removeFromTop(4);
+
+            row = bounds.removeFromTop(rowH);
+            modelLabel_.setBounds(row.removeFromLeft(labelW));
+            modelEditor_.setBounds(row.reduced(0, 1));
+            bounds.removeFromTop(4);
+        }
 
         // API key row
         row = bounds.removeFromTop(rowH);
@@ -229,18 +267,44 @@ class AISettingsDialog::CloudPage : public juce::Component {
             addListEntry(provider);
         }
 
+        // Load custom provider settings
+        auto cp = config.getCustomProvider();
+        if (cp.enabled) {
+            credentials_[magda::provider::CUSTOM] = juce::String(cp.apiKey);
+            customUrl_ = juce::String(cp.baseUrl);
+            customModel_ = juce::String(cp.model);
+            addListEntry(magda::provider::CUSTOM);
+        }
+
         updateProviderComboState();
         resized();
     }
 
     void apply(Config& config) const {
         // Clear all credentials first
-        for (const auto& p : getKnownProviders())
-            config.setAICredential(p.id, "");
+        for (const auto& p : getKnownProviders()) {
+            if (std::string(p.id) != magda::provider::CUSTOM)
+                config.setAICredential(p.id, "");
+        }
 
-        // Write stored credentials
-        for (const auto& [id, key] : credentials_)
+        // Write stored credentials (skip custom — handled separately)
+        for (const auto& [id, key] : credentials_) {
+            if (id == magda::provider::CUSTOM)
+                continue;
             config.setAICredential(id, key.toStdString());
+        }
+
+        // Write custom provider
+        Config::CustomProvider cp;
+        auto customIt = credentials_.find(magda::provider::CUSTOM);
+        if (customIt != credentials_.end() && customIt->second.isNotEmpty()) {
+            cp.enabled = true;
+            cp.apiKey = customIt->second.toStdString();
+            cp.baseUrl = customUrl_.toStdString();
+            cp.model = customModel_.toStdString();
+            cp.name = "Custom Relay";
+        }
+        config.setCustomProvider(cp);
     }
 
     /** Return list of configured provider IDs (those with non-empty keys). */
@@ -294,6 +358,27 @@ class AISettingsDialog::CloudPage : public juce::Component {
             return;
         }
 
+        // Custom provider requires URL
+        if (providerId == magda::provider::CUSTOM) {
+            auto url = urlEditor_.getText().trim();
+            if (url.isEmpty()) {
+                statusLabel_.setText("Enter a base URL for custom relay",
+                                     juce::dontSendNotification);
+                statusLabel_.setColour(juce::Label::textColourId, juce::Colours::orange);
+                return;
+            }
+            // Strip trailing slash
+            while (url.endsWithChar('/'))
+                url = url.dropLastCharacters(1);
+            // Auto-append /v1 if URL looks like a bare domain (no path after host)
+            // e.g. "https://yikoulian.cc" -> "https://yikoulian.cc/v1"
+            auto afterProtocol = url.fromFirstOccurrenceOf("://", false, false);
+            if (!afterProtocol.contains("/"))
+                url += "/v1";
+            customUrl_ = url;
+            customModel_ = modelEditor_.getText().trim();
+        }
+
         // Store credential
         credentials_[providerId] = key;
 
@@ -324,7 +409,8 @@ class AISettingsDialog::CloudPage : public juce::Component {
         // Remove list entry
         for (auto it = entries_.begin(); it != entries_.end(); ++it) {
             if (it->providerId == providerId) {
-                listContainer_.removeChildComponent(it->iconComp);
+                if (it->iconComp)
+                    listContainer_.removeChildComponent(it->iconComp);
                 listContainer_.removeChildComponent(it->nameLabel);
                 listContainer_.removeChildComponent(it->statusLabel);
                 listContainer_.removeChildComponent(it->removeBtn);
@@ -345,11 +431,15 @@ class AISettingsDialog::CloudPage : public juce::Component {
         ListEntry entry;
         entry.providerId = providerId;
 
-        // Icon
+        // Icon (may be nullptr for custom providers)
         auto icon = createProviderIcon(*info);
-        listContainer_.addAndMakeVisible(*icon);
-        entry.iconComp = icon.get();
-        ownedDrawables_.push_back(std::move(icon));
+        if (icon) {
+            listContainer_.addAndMakeVisible(*icon);
+            entry.iconComp = icon.get();
+            ownedDrawables_.push_back(std::move(icon));
+        } else {
+            entry.iconComp = nullptr;
+        }
 
         // Name label
         auto nameLabel = std::make_unique<juce::Label>();
@@ -407,6 +497,13 @@ class AISettingsDialog::CloudPage : public juce::Component {
         auto providerId = getSelectedProviderId();
         auto key = keyEditor_.getText().trim();
 
+        // If key field is empty, try stored credential (for re-testing after Add)
+        if (key.isEmpty()) {
+            auto it = credentials_.find(providerId);
+            if (it != credentials_.end())
+                key = it->second;
+        }
+
         if (providerId.empty() || key.isEmpty()) {
             statusLabel_.setText("Enter an API key first", juce::dontSendNotification);
             statusLabel_.setColour(juce::Label::textColourId, juce::Colours::orange);
@@ -425,6 +522,28 @@ class AISettingsDialog::CloudPage : public juce::Component {
         auto testProvider = std::string(info->testProvider);
         auto testBaseUrl = std::string(info->testBaseUrl);
         auto testModel = std::string(info->testModel);
+
+        // Custom provider uses user-specified URL and model
+        if (providerId == magda::provider::CUSTOM) {
+            testBaseUrl = urlEditor_.getText().trim().toStdString();
+            // Strip trailing slash to avoid double-slash in endpoint URL
+            while (!testBaseUrl.empty() && testBaseUrl.back() == '/')
+                testBaseUrl.pop_back();
+            // Auto-append /v1 if URL is a bare domain
+            if (!testBaseUrl.empty()) {
+                auto afterProto = testBaseUrl.find("://");
+                if (afterProto != std::string::npos) {
+                    auto pathStart = testBaseUrl.find('/', afterProto + 3);
+                    if (pathStart == std::string::npos)
+                        testBaseUrl += "/v1";
+                }
+            }
+            testModel = modelEditor_.getText().trim().toStdString();
+            testProvider = magda::provider::OPENAI_CHAT;
+            if (testModel.empty())
+                testModel = "gpt-3.5-turbo";
+        }
+
         auto safeThis = juce::Component::SafePointer<CloudPage>(this);
 
         juce::Thread::launch([safeThis, key, testProvider, testBaseUrl, testModel]() {
@@ -449,7 +568,8 @@ class AISettingsDialog::CloudPage : public juce::Component {
                 ok = true;
                 result = "OK (" + juce::String(resp.wallSeconds, 1) + "s)";
             } else {
-                result = resp.error.substring(0, 50);
+                // Show URL in error for debugging
+                result = resp.error.substring(0, 200);
             }
 
             juce::MessageManager::callAsync([safeThis, ok, result]() {
@@ -471,6 +591,11 @@ class AISettingsDialog::CloudPage : public juce::Component {
     juce::TextButton testBtn_, addBtn_;
     juce::Label statusLabel_;
 
+    // Custom relay fields
+    juce::Label urlLabel_, modelLabel_;
+    juce::TextEditor urlEditor_, modelEditor_;
+    juce::String customUrl_, customModel_;
+
     // Registered providers list
     juce::Label registeredLabel_;
     juce::Component listContainer_;
@@ -481,6 +606,15 @@ class AISettingsDialog::CloudPage : public juce::Component {
 
     // Credential storage (provider ID → API key)
     std::map<std::string, juce::String> credentials_;
+
+    void onProviderChanged() {
+        bool isCustom = (getSelectedProviderId() == magda::provider::CUSTOM);
+        urlLabel_.setVisible(isCustom);
+        urlEditor_.setVisible(isCustom);
+        modelLabel_.setVisible(isCustom);
+        modelEditor_.setVisible(isCustom);
+        resized();
+    }
 };
 
 // ============================================================================
@@ -949,6 +1083,8 @@ class AISettingsDialog::ConfigPage : public juce::Component {
             savedProviderDisplay_ = "DeepSeek";
         else if (musicCfg.provider == magda::provider::OPENROUTER)
             savedProviderDisplay_ = "OpenRouter";
+        else if (musicCfg.provider == magda::provider::CUSTOM)
+            savedProviderDisplay_ = "Custom (Relay)";
         else if (musicCfg.provider == magda::provider::OPENAI_CHAT ||
                  musicCfg.provider == magda::provider::OPENAI_RESPONSES)
             savedProviderDisplay_ = "OpenAI";
@@ -1004,21 +1140,35 @@ class AISettingsDialog::ConfigPage : public juce::Component {
             // Cloud
             config.setAIPreset(presetId);
 
-            auto* preset = magda::findPreset(presetId);
-            if (preset) {
-                for (const auto& [role, presetCfg] : preset->agents) {
-                    auto cfg = presetCfg;
-                    cfg.apiKey = "";
-                    config.setAgentLLMConfig(role, cfg);
+            if (presetId == "cloud_custom") {
+                // Custom relay — build config from custom provider settings
+                auto cp = config.getCustomProvider();
+                Config::AgentLLMConfig customCfg;
+                customCfg.provider = magda::provider::CUSTOM;
+                customCfg.baseUrl = cp.baseUrl;
+                customCfg.apiKey = cp.apiKey;
+                customCfg.model = cp.model;
+                config.setAgentLLMConfig(magda::role::ROUTER, customCfg);
+                config.setAgentLLMConfig(magda::role::COMMAND, customCfg);
+                config.setAgentLLMConfig(magda::role::MUSIC, customCfg);
+                config.setAgentLLMConfig(magda::role::CONTROLLER, customCfg);
+            } else {
+                auto* preset = magda::findPreset(presetId);
+                if (preset) {
+                    for (const auto& [role, presetCfg] : preset->agents) {
+                        auto cfg = presetCfg;
+                        cfg.apiKey = "";
+                        config.setAgentLLMConfig(role, cfg);
+                    }
                 }
-            }
 
-            // Cost optimization: use cheaper model for router only
-            // (command needs the full model for CFG/Responses API)
-            if (optimize == "Cost") {
-                auto routerCfg = config.getAgentLLMConfig(magda::role::ROUTER);
-                applyCheaperModel(routerCfg, presetId);
-                config.setAgentLLMConfig(magda::role::ROUTER, routerCfg);
+                // Cost optimization: use cheaper model for router only
+                // (command needs the full model for CFG/Responses API)
+                if (optimize == "Cost") {
+                    auto routerCfg = config.getAgentLLMConfig(magda::role::ROUTER);
+                    applyCheaperModel(routerCfg, presetId);
+                    config.setAgentLLMConfig(magda::role::ROUTER, routerCfg);
+                }
             }
         } else {
             // Hybrid
@@ -1098,6 +1248,8 @@ class AISettingsDialog::ConfigPage : public juce::Component {
             return magda::preset::CLOUD_DEEPSEEK;
         if (display == "OpenRouter")
             return magda::preset::CLOUD_OPENROUTER;
+        if (display == "Custom (Relay)")
+            return "cloud_custom";
         return magda::preset::CLOUD_OPENAI;
     }
 

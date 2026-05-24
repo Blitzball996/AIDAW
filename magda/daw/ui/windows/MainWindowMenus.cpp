@@ -772,7 +772,7 @@ void MainWindow::setupMenuCallbacks() {
             } else {
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::AlertWindow::InfoIcon, tr("dialogs.updates.title"),
-                    tr("dialogs.updates.up_to_date") + " (MAGDA " + r.currentVersion + ")");
+                    tr("dialogs.updates.up_to_date") + " (Blitz " + r.currentVersion + ")");
             }
         });
     };
@@ -789,6 +789,17 @@ void MainWindow::setupMenuCallbacks() {
         if (!engine)
             return;
         PluginSettingsDialog::showDialog(engine, this);
+    };
+
+    // New feature panel callbacks (TODO: wire to PanelController when ready)
+    callbacks.onShowBeatBox = [this]() {
+        DBG("Show Beat Box panel");
+    };
+    callbacks.onShowClipBrowser = [this]() {
+        DBG("Show Clip Browser panel");
+    };
+    callbacks.onShowVirtualKeyboard = [this]() {
+        DBG("Show Virtual Keyboard panel");
     };
 
     // Initialize the menu manager with callbacks

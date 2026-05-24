@@ -365,17 +365,52 @@ FaustPlugin::FaustPlugin(const te::PluginCreationInfo& info) : te::Plugin(info) 
     const auto savedViewKindRaw = static_cast<int>(
         state.getProperty("dspViewKind", static_cast<int>(FaustCustomViewKind::None)));
 
-    juce::String err;
-    auto compiled = compileAndRebind(
-        savedSource.isNotEmpty() ? savedSource : juce::String(kDefaultDspSource), err);
-    if (!compiled) {
-        DBG("FaustPlugin: failed to compile saved source: " << err << " — using default");
-        compiled = compileAndRebind(kDefaultDspSource, err);
+    // If no saved source, load the first bundled synth starter instead of passthrough
+    juce::String initialSource;
+    juce::String initialName;
+    FaustCustomViewKind initialViewKind = FaustCustomViewKind::None;
+    // If no saved source or only the default passthrough, load a synth starter
+    bool isDefaultOrEmpty = savedSource.isEmpty() ||
+                            savedSource.contains("Passthrough") ||
+                            (savedSource.trim().length() < 50 && savedSource.contains("_, _"));
+    if (isDefaultOrEmpty) {
+        auto starters = getBundledStarterDsps();
+        // Load the first available starter DSP
+        if (!starters.empty()) {
+            initialSource = starters[0].source;
+            initialName = starters[0].name;
+            initialViewKind = starters[0].viewKind;
+        }
+        if (initialSource.isEmpty()) {
+            initialSource = savedSource.isNotEmpty() ? savedSource : juce::String(kDefaultDspSource);
+            initialName = "Passthrough";
+        }
+    } else {
+        initialSource = savedSource;
+        initialName = savedName.isNotEmpty() ? savedName : juce::String("Passthrough");
+        initialViewKind = static_cast<FaustCustomViewKind>(savedViewKindRaw);
     }
 
-    dspSource_ = savedSource.isNotEmpty() ? savedSource : juce::String(kDefaultDspSource);
-    dspName_ = savedName.isNotEmpty() ? savedName : juce::String("Passthrough");
-    viewKind_ = static_cast<FaustCustomViewKind>(savedViewKindRaw);
+    juce::String err;
+    auto compiled = compileAndRebind(initialSource, err);
+    if (!compiled) {
+        // Show error to user for debugging
+        juce::String debugMsg = "Faust compile failed!\nName: " + initialName +
+                                "\nError: " + err +
+                                "\nSource length: " + juce::String(initialSource.length());
+        juce::MessageManager::callAsync([debugMsg]() {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::MessageBoxIconType::WarningIcon, "Faust Debug", debugMsg);
+        });
+        compiled = compileAndRebind(kDefaultDspSource, err);
+        initialSource = kDefaultDspSource;
+        initialName = "Passthrough";
+        initialViewKind = FaustCustomViewKind::None;
+    }
+
+    dspSource_ = initialSource;
+    dspName_ = initialName;
+    viewKind_ = initialViewKind;
 
     std::atomic_store(&active_, compiled);
 

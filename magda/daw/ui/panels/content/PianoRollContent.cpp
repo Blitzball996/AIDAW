@@ -66,6 +66,19 @@ PianoRollContent::PianoRollContent() {
     };
     addAndMakeVisible(velocityToggle_.get());
 
+    // Create pencil mode toggle button
+    pencilToggle_ = std::make_unique<magda::SvgButton>("PencilToggle", BinaryData::pencil_svg,
+                                                       BinaryData::pencil_svgSize);
+    pencilToggle_->setTooltip("Pencil tool (draw notes)");
+    pencilToggle_->setOriginalColor(juce::Colour(0xFFB3B3B3));
+    pencilToggle_->setActive(false);
+    pencilToggle_->onClick = [this]() {
+        bool enabled = !gridComponent_->getPencilMode();
+        gridComponent_->setPencilMode(enabled);
+        pencilToggle_->setActive(enabled);
+    };
+    addAndMakeVisible(pencilToggle_.get());
+
     // Create keyboard component
     keyboard_ = std::make_unique<magda::PianoRollKeyboard>();
     keyboard_->setNoteHeight(noteHeight_);
@@ -631,6 +644,8 @@ void PianoRollContent::resized() {
     // Chord toggle at top of sidebar — vertically centered in chord row height
     int chordToggleY = showChordRow_ ? (CHORD_ROW_HEIGHT - iconSize) / 2 : padding;
     chordToggle_->setBounds(padding, chordToggleY, iconSize, iconSize);
+    // Pencil toggle below chord toggle
+    pencilToggle_->setBounds(padding, chordToggleY + iconSize + padding, iconSize, iconSize);
     // Velocity toggle at bottom
     velocityToggle_->setBounds(padding, getHeight() - iconSize - padding, iconSize, iconSize);
 

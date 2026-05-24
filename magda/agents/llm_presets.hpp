@@ -17,6 +17,7 @@ inline constexpr const char* GEMINI = "gemini";
 inline constexpr const char* DEEPSEEK = "deepseek";
 inline constexpr const char* OPENROUTER = "openrouter";
 inline constexpr const char* LLAMA_LOCAL = "llama_local";
+inline constexpr const char* CUSTOM = "custom";
 }  // namespace provider
 
 // --- Preset IDs ---

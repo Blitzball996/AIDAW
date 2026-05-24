@@ -10,7 +10,8 @@ namespace magda {
 
 /** Map provider string to llm::Provider enum.
     "deepseek" and "openrouter" are OpenAI-compatible services with their own
-    credentials and base URLs — they map to the same OpenAIChat wire format. */
+    credentials and base URLs — they map to the same OpenAIChat wire format.
+    "custom" is a user-defined relay endpoint, also OpenAI-compatible. */
 inline llm::Provider providerFromString(const std::string& s) {
     if (s == provider::OPENAI_RESPONSES)
         return llm::Provider::OpenAIResponses;
@@ -18,7 +19,7 @@ inline llm::Provider providerFromString(const std::string& s) {
         return llm::Provider::Anthropic;
     if (s == provider::GEMINI)
         return llm::Provider::Gemini;
-    // deepseek, openrouter, openai_chat all use the OpenAI Chat Completions format
+    // deepseek, openrouter, openai_chat, custom all use the OpenAI Chat Completions format
     return llm::Provider::OpenAIChat;
 }
 
@@ -32,6 +33,11 @@ inline juce::String defaultBaseUrl(const std::string& providerStr) {
         return "https://api.anthropic.com/v1";
     if (providerStr == provider::GEMINI)
         return "https://generativelanguage.googleapis.com";
+    if (providerStr == provider::CUSTOM) {
+        auto cp = Config::getInstance().getCustomProvider();
+        if (!cp.baseUrl.empty())
+            return juce::String(cp.baseUrl);
+    }
     // openai_chat and openai_responses share the same base URL
     return "https://api.openai.com/v1";
 }
@@ -57,6 +63,12 @@ inline llm::ProviderConfig toLLMProviderConfig(const Config::AgentLLMConfig& con
         // openai_responses shares credentials with openai_chat
         if (credential.empty() && config.provider == provider::OPENAI_RESPONSES)
             credential = Config::getInstance().getAICredential(provider::OPENAI_CHAT);
+
+        // custom provider uses its own stored key
+        if (credential.empty() && config.provider == provider::CUSTOM) {
+            auto cp = Config::getInstance().getCustomProvider();
+            credential = cp.apiKey;
+        }
 
         if (!credential.empty()) {
             pc.apiKey = juce::String(credential);
@@ -84,10 +96,14 @@ inline llm::ProviderConfig toLLMProviderConfig(const Config::AgentLLMConfig& con
     }
 
     // Application identity headers
-    pc.userAgent = juce::String("MAGDA/") + MAGDA_VERSION;
+    pc.userAgent = juce::String("Blitz/") + MAGDA_VERSION;
     if (!agentName.empty())
         pc.userAgent += " (" + juce::String(agentName) + ")";
     pc.appUrl = "https://magda.dev";
+
+    // Custom relay providers may have higher latency — use generous timeout
+    if (config.provider == provider::CUSTOM)
+        pc.connectionTimeoutMs = 60000;
 
     return pc;
 }

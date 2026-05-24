@@ -49,6 +49,8 @@ enum class InternalDeviceKind {
     AudioSidechainMonitor,
     InstrumentMeterTap,
     SessionMonitor,
+    // --- SoundFont -----------------------------------------------------
+    SoundFont,
     // --- Faust ---------------------------------------------------------
     Faust,  // interpreter-based, runs arbitrary user .dsp
 };

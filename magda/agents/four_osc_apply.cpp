@@ -3,7 +3,6 @@
 #include <set>
 
 #include "audio/AudioBridge.hpp"
-#include "core/ParameterUtils.hpp"
 #include "core/PresetManager.hpp"
 #include "core/TrackManager.hpp"
 #include "core/aliases/ParamNameNormalize.hpp"
@@ -69,10 +68,22 @@ int voiceModeNameToInt(const juce::String& name) {
 
 juce::String applyFourOscPresetToPath(const FourOscAgent::Preset& preset,
                                       const ChainNodePath& path) {
+    DBG("applyFourOscPresetToPath: path.isValid=" + juce::String(path.isValid() ? "yes" : "no") +
+        " trackId=" + juce::String(path.trackId) +
+        " steps=" + juce::String(static_cast<int>(path.steps.size())));
+
     auto& tm = TrackManager::getInstance();
     auto* device = tm.getDeviceInChainByPath(path);
-    if (device == nullptr || internalPluginFromId(device->pluginId) != InternalPlugin::FourOsc)
+    if (device == nullptr || internalPluginFromId(device->pluginId) != InternalPlugin::FourOsc) {
+        DBG("applyFourOscPresetToPath: device=" + juce::String(device ? "found" : "NULL") +
+            (device ? " pluginId=" + device->pluginId : ""));
         return "target device is not a 4OSC";
+    }
+
+    DBG("applyFourOscPresetToPath: device='" + device->name + "' params=" +
+        juce::String(static_cast<int>(device->parameters.size())) +
+        " preset='" + juce::String(preset.name) + "' presetParams=" +
+        juce::String(static_cast<int>(preset.params.size())));
 
     // Map every param name on the device to its index, normalized the same
     // way AutoAliasGenerator does, so the preset's alias-style keys
@@ -84,32 +95,55 @@ juce::String applyFourOscPresetToPath(const FourOscAgent::Preset& preset,
             indexByName[key] = i;
     }
 
-    // Some param values arrive in REAL UNITS from the agent (per the
-    // UNIT EXCEPTION rules in the system prompt) and bypass
-    // normalizedToReal; the rest are normalized 0..1 as usual.
-    //   ADSR times → seconds
-    //   tune_N     → semitones (signed)
-    //   fine_tune_N→ cents (signed)
-    static const std::set<juce::String> kRealValueParams = {
-        "amp_attack",     "amp_decay",   "amp_release", "filter_attack", "filter_decay",
-        "filter_release", "tune_1",      "tune_2",      "tune_3",        "tune_4",
-        "fine_tune_1",    "fine_tune_2", "fine_tune_3", "fine_tune_4",
-    };
+    // Get the live TE plugin to write parameters directly — this bypasses
+    // the TrackManager→AudioBridge→Processor roundtrip that was silently
+    // failing for factory presets.
+    auto* engine = tm.getAudioEngine();
+    auto* bridge = engine ? engine->getAudioBridge() : nullptr;
+    auto plugin = bridge ? bridge->getPlugin(device->id) : nullptr;
+    auto* fourOsc = dynamic_cast<te::FourOscPlugin*>(plugin.get());
 
     int applied = 0;
     int skipped = 0;
-    for (const auto& [name, value] : preset.params) {
-        const juce::String key(name);
-        auto it = indexByName.find(key);
-        if (it == indexByName.end()) {
-            ++skipped;
-            continue;
+    if (fourOsc) {
+        auto params = fourOsc->getAutomatableParameters();
+        for (const auto& [name, value] : preset.params) {
+            const juce::String key(name);
+            auto it = indexByName.find(key);
+            if (it == indexByName.end()) {
+                ++skipped;
+                continue;
+            }
+            const auto& paramInfo = device->parameters[static_cast<size_t>(it->second)];
+            int teIdx = paramInfo.paramIndex;
+            if (teIdx >= 0 && teIdx < params.size() && params[teIdx] != nullptr) {
+                params[teIdx]->setParameter(value, juce::sendNotificationSync);
+                ++applied;
+            } else {
+                ++skipped;
+            }
         }
-        const auto& info = device->parameters[static_cast<size_t>(it->second)];
-        const float real =
-            kRealValueParams.count(key) ? value : ParameterUtils::normalizedToReal(value, info);
-        tm.setDeviceParameterValue(path, it->second, real);
-        ++applied;
+        // Re-read all parameter values from the live plugin back into DeviceInfo
+        // so UI rebuilds see the correct state.
+        for (int i = 0; i < static_cast<int>(device->parameters.size()); ++i) {
+            auto& pi = device->parameters[static_cast<size_t>(i)];
+            int teIdx = pi.paramIndex;
+            if (teIdx >= 0 && teIdx < params.size() && params[teIdx] != nullptr)
+                pi.currentValue = params[teIdx]->getCurrentValue();
+        }
+    } else {
+        // Fallback: use TrackManager path
+        for (const auto& [name, value] : preset.params) {
+            const juce::String key(name);
+            auto it = indexByName.find(key);
+            if (it == indexByName.end()) {
+                ++skipped;
+                continue;
+            }
+            const auto& paramInfo = device->parameters[static_cast<size_t>(it->second)];
+            tm.setDeviceParameterValue(path, paramInfo.paramIndex, ParameterModelValue{value});
+            ++applied;
+        }
     }
 
     // Wave shapes go through a separate path: they're stored as int
@@ -185,21 +219,11 @@ juce::String applyFourOscPresetToPath(const FourOscAgent::Preset& preset,
         }
     }
 
-    // Capture the now-mutated live plugin state into MAGDA's
-    // DeviceInfo.pluginState so a later trackDevicesChanged → syncTrackPlugins
-    // doesn't re-push the stale pluginState and clobber the waveShape /
-    // filterType writes we just made on the live ValueTree.
-    //
-    // Intentionally do NOT call tm.notifyTrackDevicesChanged here. That
-    // tears the chain UI down (rebuildNodeComponents) immediately, which
-    // destroys the AI panel that's about to display the apply status and
-    // disclaimer. The caller (AIPanelComponent::onGenerationFinished)
-    // fires the notify once the panel has persisted its final text.
-    if (auto* engine = tm.getAudioEngine()) {
-        if (auto* bridge = engine->getAudioBridge()) {
-            bridge->getPluginManager().capturePluginState(device->id);
-        }
+    // Sync plugin state and notify UI to refresh
+    if (bridge) {
+        bridge->getPluginManager().capturePluginState(device->id);
     }
+    tm.notifyTrackDevicesChanged(path.trackId);
 
     // Stash the agent's preset name as the default for the next save
     // dialog on this device. If the agent picked a category, prepend it

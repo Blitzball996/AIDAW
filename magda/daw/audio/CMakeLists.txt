@@ -345,6 +345,7 @@ target_sources(magda_daw PRIVATE
     plugins/FaustMetadataParser.cpp
     plugins/FaustParamPool.cpp
     plugins/FaustParamInfo.cpp
+    plugins/SoundFontPlugin.cpp
     transport/StepClock.cpp
     plugins/StepSequencerPlugin.cpp
     # Controller routing (issue #1050 -- Phase C)
@@ -392,6 +393,7 @@ target_sources(magda_daw PRIVATE
     plugins/FaustMetadataParser.hpp
     plugins/FaustParamPool.hpp
     plugins/FaustParamInfo.hpp
+    plugins/SoundFontPlugin.hpp
     transport/StepClock.hpp
     plugins/StepSequencerPlugin.hpp
 )

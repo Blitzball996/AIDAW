@@ -11,3 +11,4 @@ build2/
 CMakeFiles/
 cmake-build-*/
 build3/
+assets/soundfonts/*.sf2

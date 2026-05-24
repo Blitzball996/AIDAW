@@ -1,8 +1,11 @@
 #include "slot/DevicePresetMenu.hpp"
 
+#include "../../../../../agents/four_osc_apply.hpp"
+#include "../../../../../agents/four_osc_factory_presets.hpp"
 #include "audio/AudioBridge.hpp"
 #include "core/PluginPresetScanner.hpp"
 #include "core/PresetManager.hpp"
+#include "core/SelectionManager.hpp"
 #include "core/TrackManager.hpp"
 #include "engine/AudioEngine.hpp"
 
@@ -14,6 +17,7 @@ constexpr int kSaveOverwrite = 1;
 constexpr int kSaveAs = 2;
 constexpr int kRevealInFinder = 3;
 constexpr int kPresetIdBase = 1000;
+constexpr int kFactoryIdBase = 2000;
 constexpr int kProgramIdBase = 5000;
 constexpr int kSavePluginPresetAs = 1;
 constexpr int kRevealPluginUserDir = 2;
@@ -88,7 +92,8 @@ juce::String cleanCategory(juce::String category) {
 }  // namespace
 
 void showMagdaPresetMenu(juce::Component* targetComponent, const juce::String& pluginFolder,
-                         const juce::String& currentPresetName, MagdaPresetMenuActions actions) {
+                         const juce::String& currentPresetName, MagdaPresetMenuActions actions,
+                         const magda::ChainNodePath& deviceNodePath) {
     auto& presetManager = magda::PresetManager::getInstance();
 
     juce::PopupMenu menu;
@@ -101,6 +106,26 @@ void showMagdaPresetMenu(juce::Component* targetComponent, const juce::String& p
     if (indexedPresetPaths.isEmpty())
         menu.addItem(kPresetIdBase, "(no presets yet)", false);
 
+    // Factory presets for 4OSC Synth
+    bool isFourOsc = pluginFolder.containsIgnoreCase("4OSC");
+    if (isFourOsc) {
+        const auto& factoryPresets = magda::getFactoryFourOscPresets();
+        if (!factoryPresets.empty()) {
+            juce::PopupMenu factoryMenu;
+            for (int i = 0; i < static_cast<int>(factoryPresets.size()); ++i) {
+                factoryMenu.addItem(kFactoryIdBase + i,
+                                    juce::String(factoryPresets[static_cast<size_t>(i)].name));
+            }
+            menu.addSeparator();
+            menu.addSubMenu("Factory", factoryMenu);
+        }
+    }
+
+    // Use the explicit device path if provided, otherwise fall back to selection
+    auto selectedPath = deviceNodePath.isValid()
+                            ? deviceNodePath
+                            : magda::SelectionManager::getInstance().getSelectedChainNode();
+
     menu.addSeparator();
     if (currentPresetName.isNotEmpty())
         menu.addItem(kSaveOverwrite, "Save \"" + currentPresetName + "\"");
@@ -109,7 +134,8 @@ void showMagdaPresetMenu(juce::Component* targetComponent, const juce::String& p
 
     menu.showMenuAsync(
         juce::PopupMenu::Options().withTargetComponent(targetComponent),
-        [pluginFolder, indexedPresetPaths, actions = std::move(actions)](int chosen) {
+        [pluginFolder, indexedPresetPaths, isFourOsc, selectedPath,
+         actions = std::move(actions)](int chosen) {
             if (chosen == 0)
                 return;
 
@@ -131,6 +157,17 @@ void showMagdaPresetMenu(juce::Component* targetComponent, const juce::String& p
                 if (!dir.exists())
                     dir = presetManager.getDevicesDirectory();
                 dir.revealToUser();
+                return;
+            }
+
+            // Factory preset selected — apply via FourOscAgent preset path
+            if (isFourOsc && chosen >= kFactoryIdBase && chosen < kProgramIdBase) {
+                const auto& factoryPresets = magda::getFactoryFourOscPresets();
+                int idx = chosen - kFactoryIdBase;
+                if (idx >= 0 && idx < static_cast<int>(factoryPresets.size())) {
+                    magda::applyFourOscPresetToPath(
+                        factoryPresets[static_cast<size_t>(idx)], selectedPath);
+                }
                 return;
             }
 

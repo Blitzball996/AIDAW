@@ -9,6 +9,7 @@
 #include "plugins/MidiChordEnginePlugin.hpp"
 #include "plugins/MidiReceivePlugin.hpp"
 #include "plugins/SidechainMonitorPlugin.hpp"
+#include "plugins/SoundFontPlugin.hpp"
 #include "plugins/StepSequencerPlugin.hpp"
 #include "processors/DeviceProcessor.hpp"
 #include "processors/internal/MidiDeviceProcessors.hpp"
@@ -121,6 +122,10 @@ const InternalPluginSpec kSpecs[] = {
      "Interpreted Faust device for loading and editing user DSP code.",
      InternalPluginCreateMode::SavedStateOrFresh, true, true, nullptr, 0, matches<FaustPlugin>,
      makeProcessor<FaustProcessor>},
+    {InternalDeviceKind::SoundFont, SoundFontPlugin::xmlTypeName, "SoundFont Player", "Synth",
+     "SF2-based multi-timbral instrument using TinySoundFont.",
+     InternalPluginCreateMode::FreshValueTree, true, true, nullptr, 0, matches<SoundFontPlugin>,
+     nullptr},
     {InternalDeviceKind::MidiReceive, ::magda::MidiReceivePlugin::xmlTypeName, "MIDI Receive",
      "MIDI", "Internal MIDI routing endpoint used by MAGDA track and device routing.",
      InternalPluginCreateMode::Unsupported, false, false, nullptr, 0,
@@ -148,6 +153,7 @@ const InternalPluginSpec* const kSpecPtrs[] = {
     &kSpecs[6],  &kSpecs[7],  &kSpecs[8],  &kSpecs[9],  &kSpecs[10], &kSpecs[11],
     &kSpecs[12], &kSpecs[13], &kSpecs[14], &kSpecs[15], &kSpecs[16], &kSpecs[17],
     &kSpecs[18], &kSpecs[19], &kSpecs[20], &kSpecs[21], &kSpecs[22], &kSpecs[23],
+    &kSpecs[24],
 };
 
 bool typeMatchesAlias(const juce::String& type, const InternalPluginSpec& spec) {

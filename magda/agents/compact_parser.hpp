@@ -17,17 +17,19 @@ using TokenCallback = std::function<bool(const juce::String& token)>;
 // ============================================================================
 
 enum class OpCode {
-    Track,   // Create or reference track
-    Del,     // Delete track
-    Mute,    // Mute track by name
-    Solo,    // Solo track by name
-    Set,     // Set track properties
-    Clip,    // Create clip
-    Fx,      // Add FX
-    Select,  // Select clips/tracks by criteria
-    Arp,     // Add arpeggio (on last clip target)
-    Chord,   // Add chord (on last clip target)
-    Note,    // Add note (on last clip target)
+    Track,       // Create or reference track
+    Del,         // Delete track
+    Mute,        // Mute track by name
+    Solo,        // Solo track by name
+    Set,         // Set track properties
+    Clip,        // Create clip
+    Fx,          // Add FX
+    Select,      // Select clips/tracks by criteria
+    Arp,         // Add arpeggio (on last clip target)
+    Chord,       // Add chord (on last clip target)
+    Note,        // Add note (on last clip target)
+    TrackSwitch, // Switch target track by name (multi-track music generation)
+    Repeat,      // Repeat a beat range N times
 };
 
 /** How a track is referenced — by 1-based index, by name, or implicitly (last TRACK). */
@@ -116,8 +118,19 @@ struct NoteOp {
     int velocity = -1;  // -1 = not specified
 };
 
+struct TrackSwitchOp {
+    juce::String name;  // target track name
+};
+
+struct RepeatOp {
+    double fromBeat = 0.0;
+    double toBeat = 0.0;
+    double pasteAt = 0.0;
+    int times = 1;
+};
+
 using OpPayload = std::variant<TrackOp, DelOp, MuteOp, SoloOp, SetOp, ClipOp, FxOp, SelectOp, ArpOp,
-                               ChordOp, NoteOp>;
+                               ChordOp, NoteOp, TrackSwitchOp, RepeatOp>;
 
 struct Instruction {
     OpCode opcode;

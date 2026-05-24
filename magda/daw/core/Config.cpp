@@ -148,6 +148,17 @@ void Config::save() {
         aiObj->setProperty("localLlamaGpuLayers", localLlamaGpuLayers);
         aiObj->setProperty("localLlamaContextSize", localLlamaContextSize);
 
+        // Custom relay provider
+        if (customProvider.enabled) {
+            auto* cpObj = new juce::DynamicObject();
+            cpObj->setProperty("name", toJuceString(customProvider.name));
+            cpObj->setProperty("baseUrl", toJuceString(customProvider.baseUrl));
+            cpObj->setProperty("apiKey", toJuceString(customProvider.apiKey));
+            cpObj->setProperty("model", toJuceString(customProvider.model));
+            cpObj->setProperty("enabled", customProvider.enabled);
+            aiObj->setProperty("customProvider", juce::var(cpObj));
+        }
+
         // MCP servers
         if (!mcpServers.empty()) {
             juce::Array<juce::var> mcpArray;
@@ -198,6 +209,7 @@ void Config::save() {
     // Total plugin count
     root->setProperty("totalPluginCount", totalPluginCount);
     root->setProperty("scanPluginsOnStartup", scanPluginsOnStartup);
+    root->setProperty("lastScanTimestamp", static_cast<juce::int64>(lastScanTimestamp));
     root->setProperty("loadModelOnStartup", loadModelOnStartup);
     root->setProperty("stopUpdatesPlayhead", stopUpdatesPlayhead);
 
@@ -482,6 +494,18 @@ void Config::load() {
                         aiCredentials[provider] = key;
                 }
             }
+
+            // Load custom relay provider
+            auto cpVar = aiObj->getProperty("customProvider");
+            if (auto* cpObj = cpVar.getDynamicObject()) {
+                customProvider.name = cpObj->getProperty("name").toString().toStdString();
+                customProvider.baseUrl = cpObj->getProperty("baseUrl").toString().toStdString();
+                customProvider.apiKey = cpObj->getProperty("apiKey").toString().toStdString();
+                customProvider.model = cpObj->getProperty("model").toString().toStdString();
+                customProvider.enabled = cpObj->hasProperty("enabled")
+                                             ? static_cast<bool>(cpObj->getProperty("enabled"))
+                                             : false;
+            }
         }
     } else {
         // Migrate from legacy flat fields
@@ -542,6 +566,9 @@ void Config::load() {
     customPluginPaths = getStringArray("customPluginPaths");
     totalPluginCount = getInt("totalPluginCount", totalPluginCount);
     scanPluginsOnStartup = getBool("scanPluginsOnStartup", scanPluginsOnStartup);
+    if (obj->hasProperty("lastScanTimestamp"))
+        lastScanTimestamp = static_cast<int64_t>(
+            static_cast<juce::int64>(obj->getProperty("lastScanTimestamp")));
     loadModelOnStartup = getBool("loadModelOnStartup", loadModelOnStartup);
     stopUpdatesPlayhead = getBool("stopUpdatesPlayhead", stopUpdatesPlayhead);
 

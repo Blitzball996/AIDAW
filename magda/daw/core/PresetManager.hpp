@@ -147,6 +147,12 @@ class PresetManager {
     juce::String getSuggestedPresetName(DeviceId deviceId) const;
     void clearSuggestedPresetName(DeviceId deviceId);
 
+    /**
+     * @brief Install factory presets if the device preset directory is empty.
+     * Called once at startup. Writes built-in 4OSC presets to disk.
+     */
+    void installFactoryPresets();
+
     // ========================================================================
     // Error Handling
     // ========================================================================

@@ -89,6 +89,11 @@ class MenuManager : public juce::MenuBarModel, public UndoManagerListener {
         std::function<void()> onOpenManual;
         std::function<void()> onCheckForUpdates;
         std::function<void()> onAbout;
+
+        // New feature panels
+        std::function<void()> onShowBeatBox;
+        std::function<void()> onShowClipBrowser;
+        std::function<void()> onShowVirtualKeyboard;
     };
 
     static MenuManager& getInstance();

@@ -57,7 +57,7 @@ class AboutDialog::ContentComponent : public juce::Component {
 
         // Title as clickable link to website
         titleLink_ =
-            std::make_unique<juce::HyperlinkButton>("MAGDA", juce::URL("https://magda.land"));
+            std::make_unique<juce::HyperlinkButton>("Blitz", juce::URL("https://magda.land"));
         titleLink_->setFont(FontManager::getInstance().getMicrogrammaFont(28.0f), false);
         titleLink_->setColour(juce::HyperlinkButton::textColourId,
                               juce::Colour(DarkTheme::TEXT_PRIMARY));

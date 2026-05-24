@@ -196,6 +196,10 @@ juce::PopupMenu MenuManager::getMenuForIndex(int topLevelMenuIndex,
             menu.addItem(ZoomLoopToFit, tr("menu.view.zoom_loop"), true, false);
             menu.addItem(ZoomSelectionToFit, tr("menu.view.zoom_selection"), true, false);
             menu.addSeparator();
+            menu.addItem(900, "Beat Box", true, false);
+            menu.addItem(901, "Clip Browser", true, false);
+            menu.addItem(902, "Virtual Keyboard", true, false);
+            menu.addSeparator();
             menu.addItem(ToggleFullscreen, tr("menu.view.fullscreen"), true, false);
             break;
         }
@@ -545,6 +549,20 @@ void MenuManager::menuItemSelected(int menuItemID, int topLevelMenuIndex) {
         case About:
             if (callbacks_.onAbout)
                 callbacks_.onAbout();
+            break;
+
+        // New feature panels
+        case 900:  // Beat Box
+            if (callbacks_.onShowBeatBox)
+                callbacks_.onShowBeatBox();
+            break;
+        case 901:  // Clip Browser
+            if (callbacks_.onShowClipBrowser)
+                callbacks_.onShowClipBrowser();
+            break;
+        case 902:  // Virtual Keyboard
+            if (callbacks_.onShowVirtualKeyboard)
+                callbacks_.onShowVirtualKeyboard();
             break;
 
         default:

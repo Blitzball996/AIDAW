@@ -1020,7 +1020,8 @@ void DeviceSlotComponent::showPresetMenu() {
         if (self != nullptr)
             self->loadMagdaPreset(presetRelativePath);
     };
-    showMagdaPresetMenu(presetButton_.get(), device_.name, currentPresetName_, std::move(actions));
+    showMagdaPresetMenu(presetButton_.get(), device_.name, currentPresetName_, std::move(actions),
+                        nodePath_);
 }
 
 magda::DeviceInfo DeviceSlotComponent::snapshotForPreset() {

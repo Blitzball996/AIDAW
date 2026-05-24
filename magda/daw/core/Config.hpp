@@ -258,6 +258,14 @@ class Config {
         scanPluginsOnStartup = enabled;
     }
 
+    // Last plugin scan timestamp (unix seconds). 0 means never scanned.
+    int64_t getLastScanTimestamp() const {
+        return lastScanTimestamp;
+    }
+    void setLastScanTimestamp(int64_t ts) {
+        lastScanTimestamp = ts;
+    }
+
     // Load AI model on startup
     bool getLoadModelOnStartup() const {
         return loadModelOnStartup;
@@ -454,6 +462,22 @@ class Config {
     }
     const std::map<std::string, std::string>& getAllAICredentials() const {
         return aiCredentials;
+    }
+
+    // Custom relay provider (中转站) — user-defined OpenAI-compatible endpoint
+    struct CustomProvider {
+        std::string name;
+        std::string baseUrl;
+        std::string apiKey;
+        std::string model;
+        bool enabled = false;
+    };
+
+    CustomProvider getCustomProvider() const {
+        return customProvider;
+    }
+    void setCustomProvider(const CustomProvider& provider) {
+        customProvider = provider;
     }
 
     /** Resolve the API key for an agent: per-agent key first, then credential by provider. */
@@ -823,6 +847,9 @@ class Config {
     // Auto-detect new plugins on startup (off by default)
     bool scanPluginsOnStartup = false;
 
+    // Unix timestamp (seconds) of last successful plugin scan. 0 = never scanned.
+    int64_t lastScanTimestamp = 0;
+
     // Load AI model on startup (off by default)
     bool loadModelOnStartup = false;
 
@@ -879,6 +906,7 @@ class Config {
         {"controller", {"llama_local", "", "", ""}},
     };
     std::map<std::string, std::string> aiCredentials;  // provider → API key
+    CustomProvider customProvider;                       // user-defined relay endpoint
     std::string localLlamaUrl = "http://127.0.0.1:8080/v1";
     std::string localModelPath;
     std::string localLlamaBinary;  // empty = search PATH

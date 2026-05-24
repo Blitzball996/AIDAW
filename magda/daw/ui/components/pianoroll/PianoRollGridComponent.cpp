@@ -572,7 +572,7 @@ void PianoRollGridComponent::mouseDown(const juce::MouseEvent& e) {
         return;
     }
 
-    if (e.mods.isShiftDown() && onNoteAdded) {
+    if ((e.mods.isShiftDown() || pencilMode_) && onNoteAdded) {
         auto insertPos = getNoteInsertPosition(e.getPosition());
         if (insertPos.has_value()) {
             const auto* clip = ClipManager::getInstance().getClip(insertPos->clipId);
@@ -1055,6 +1055,10 @@ bool PianoRollGridComponent::handleDefaultNoteMenuResult(int result) {
 
 void PianoRollGridComponent::setSnapEnabled(bool enabled) {
     snapEnabled_ = enabled;
+}
+
+void PianoRollGridComponent::setPencilMode(bool enabled) {
+    pencilMode_ = enabled;
 }
 
 void PianoRollGridComponent::setTimeSignatureNumerator(int numerator) {
@@ -1645,7 +1649,7 @@ double PianoRollGridComponent::clipBeatForDisplayX(ClipId clipId, int mouseX) co
 void PianoRollGridComponent::updateEmptyGridCursor(const juce::ModifierKeys& mods, int mouseX) {
     if (mods.isAltDown() && isNearGridLine(mouseX)) {
         setMouseCursor(juce::MouseCursor::IBeamCursor);
-    } else if (mods.isShiftDown()) {
+    } else if (mods.isShiftDown() || pencilMode_) {
         setMouseCursor(CursorManager::getInstance().getNoteDrawCursor());
     } else {
         setMouseCursor(juce::MouseCursor::NormalCursor);

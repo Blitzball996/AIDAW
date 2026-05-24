@@ -157,17 +157,25 @@ void PianoRollKeyboard::mouseDrag(const juce::MouseEvent& event) {
     // Determine drag mode if not yet set
     if (dragMode_ == DragMode::None) {
         if (deltaX > DRAG_THRESHOLD || deltaY > DRAG_THRESHOLD) {
-            // Stop note preview when drag starts
+            // Stop initial note preview when drag starts
             if (isPlayingNote_ && onNotePreview) {
-                DBG("Piano keyboard: Stopping note due to drag");
-                onNotePreview(currentPlayingNote_, 0, false);  // Note off
+                onNotePreview(currentPlayingNote_, 0, false);
                 setNotePressed(currentPlayingNote_, false);
                 isPlayingNote_ = false;
                 currentPlayingNote_ = -1;
             }
 
-            // Vertical drag = scroll (along keyboard), horizontal drag = zoom
+            // Vertical drag = slide preview, horizontal drag = zoom
             dragMode_ = (deltaY > deltaX) ? DragMode::Scrolling : DragMode::Zooming;
+
+            // Start slide preview on vertical drag
+            if (dragMode_ == DragMode::Scrolling) {
+                lastPreviewNote_ = yToNoteNumber(event.y);
+                if (onNotePreview) {
+                    onNotePreview(lastPreviewNote_, 100, true);
+                    setNotePressed(lastPreviewNote_, true);
+                }
+            }
         }
     }
 
@@ -186,7 +194,19 @@ void PianoRollKeyboard::mouseDrag(const juce::MouseEvent& event) {
             onZoomChanged(newHeight, zoomAnchorNote_, mouseDownY_);
         }
     } else if (dragMode_ == DragMode::Scrolling) {
-        // Calculate scroll delta (drag up scrolls up, drag down scrolls down)
+        // Slide preview: play notes as mouse crosses note boundaries
+        int noteUnderMouse = yToNoteNumber(event.y);
+        if (noteUnderMouse != lastPreviewNote_ && onNotePreview) {
+            // Note-off for previous note
+            onNotePreview(lastPreviewNote_, 0, false);
+            setNotePressed(lastPreviewNote_, false);
+            // Note-on for new note
+            lastPreviewNote_ = noteUnderMouse;
+            onNotePreview(lastPreviewNote_, 100, true);
+            setNotePressed(lastPreviewNote_, true);
+        }
+
+        // Also scroll
         int scrollDelta = lastDragY_ - event.y;
         lastDragY_ = event.y;
 
@@ -197,13 +217,19 @@ void PianoRollKeyboard::mouseDrag(const juce::MouseEvent& event) {
 }
 
 void PianoRollKeyboard::mouseUp(const juce::MouseEvent& /*event*/) {
-    // Stop note preview if still playing
+    // Stop note preview if still playing (click without drag)
     if (isPlayingNote_ && onNotePreview) {
-        DBG("Piano keyboard: Note released - " << currentPlayingNote_);
-        onNotePreview(currentPlayingNote_, 0, false);  // Note off
+        onNotePreview(currentPlayingNote_, 0, false);
         setNotePressed(currentPlayingNote_, false);
         isPlayingNote_ = false;
         currentPlayingNote_ = -1;
+    }
+
+    // Stop slide preview note if dragging
+    if (lastPreviewNote_ >= 0 && onNotePreview) {
+        onNotePreview(lastPreviewNote_, 0, false);
+        setNotePressed(lastPreviewNote_, false);
+        lastPreviewNote_ = -1;
     }
 
     dragMode_ = DragMode::None;

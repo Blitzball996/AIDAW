@@ -20,6 +20,7 @@
 #include "../../../../agents/llama_model_manager.hpp"
 #include "../../../../agents/llm_presets.hpp"
 #include "../../../../agents/music_agent.hpp"
+#include "../../../../agents/music_memory.hpp"
 #include "../../../../agents/router_agent.hpp"
 #include "../../../api/magda_api_live.hpp"
 #include "../../../core/AppPaths.hpp"
@@ -459,30 +460,36 @@ void AIChatConsoleContent::RequestThread::run() {
             return true;
         };
 
-        std::future<magda::CommandAgent::GenerateResult> commandFuture;
-        std::future<magda::MusicAgent::GenerateResult> musicFuture;
-
+        // Run command agent FIRST (creates tracks/clips), then music agent
+        // (fills them with notes). Sequential so music agent can see the tracks.
         if (owner_.commandAgent_) {
-            commandFuture = std::async(std::launch::async, [this, &message, cmdOnToken]() {
-                return owner_.commandAgent_->generateStreaming(message, cmdOnToken);
-            });
-        }
-        if (owner_.musicAgent_) {
-            musicFuture = std::async(std::launch::async, [this, &message, musicOnToken]() {
-                return owner_.musicAgent_->generateStreaming(message, musicOnToken);
-            });
-        }
-
-        if (commandFuture.valid()) {
-            auto result = commandFuture.get();
+            auto result = owner_.commandAgent_->generateStreaming(message, cmdOnToken);
+            if (threadShouldExit())
+                return;
             if (result.hasError) {
                 error = result.error;
             } else {
                 dslCode = result.dslOutput;
             }
         }
-        if (musicFuture.valid()) {
-            auto result = musicFuture.get();
+
+        // Execute command DSL immediately so tracks exist before music agent runs
+        if (!dslCode.empty() && !threadShouldExit()) {
+            juce::MessageManager::callAsync([safeThis, dsl = dslCode]() {
+                if (!safeThis)
+                    return;
+                magda::ClipManager::BatchScope batchScope;
+                magda::dsl::Interpreter interpreter(*safeThis->magdaApi_);
+                interpreter.execute(dsl.c_str());
+            });
+            // Brief pause to let message thread process the track creation
+            juce::Thread::sleep(200);
+        }
+
+        if (owner_.musicAgent_ && !threadShouldExit()) {
+            auto result = owner_.musicAgent_->generateStreaming(message, musicOnToken);
+            if (threadShouldExit())
+                return;
             if (result.hasError) {
                 if (error.empty())
                     error = result.error;
@@ -680,10 +687,13 @@ void AIChatConsoleContent::RequestThread::run() {
             currentText += juce::String::charToString(0x25C6) + " " + formattedResponse + "\n\n";
             safeThis->chatHistory_.setText(currentText);
             safeThis->chatHistory_.moveCaretToEnd();
-            safeThis->inputBox_->setEnabled(true);
+            safeThis->inputBox_.setEnabled(true);
             safeThis->processing_ = false;
             safeThis->restoreSendIcon();
-            safeThis->inputBox_->grabKeyboardFocus();
+            safeThis->inputBox_.grabKeyboardFocus();
+
+            // Store assistant response in music memory
+            magda::MusicMemory::getInstance().addEntry("assistant", response);
         });
 }
 
@@ -699,38 +709,46 @@ AIChatConsoleContent::AIChatConsoleContent() {
     chatHistory_.setMultiLine(true);
     chatHistory_.setReadOnly(true);
     chatHistory_.setFont(monoFont);
-    chatHistory_.setColour(juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
+    chatHistory_.setColour(juce::TextEditor::backgroundColourId,
+                           DarkTheme::getColour(DarkTheme::BUTTON_NORMAL));
     chatHistory_.setColour(juce::TextEditor::textColourId, DarkTheme::getSecondaryTextColour());
     chatHistory_.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
     chatHistory_.setColour(juce::TextEditor::focusedOutlineColourId,
                            juce::Colours::transparentBlack);
-    chatHistory_.setColour(juce::TextEditor::highlightColourId, juce::Colours::transparentBlack);
-    chatHistory_.setText(juce::String::charToString(0x25C6) + " MAGDA\n\n");
+    chatHistory_.setColour(juce::TextEditor::highlightColourId, juce::Colour(0xff264f78));
+    chatHistory_.setOpaque(true);
+    chatHistory_.setText(juce::String::charToString(0x25C6) + " Blitz\n\n");
     addAndMakeVisible(chatHistory_);
 
-    // Input box: CodeEditorComponent driven by ChatPromptTokeniser so
-    // @plugin / @plugin.param / /command get coloured automatically. Same
-    // affordance the DSL panel uses, just with a different tokeniser. Enter
-    // is intercepted in keyPressed() to send the message; the document
-    // listener replaces TextEditor::onTextChange for autocomplete triggering.
-    inputBox_ = std::make_unique<juce::CodeEditorComponent>(inputDocument_, &inputTokeniser_);
-    inputBox_->setFont(monoFont);
-    inputBox_->setLineNumbersShown(false);
-    inputBox_->setScrollbarThickness(8);
-    inputBox_->setColour(juce::CodeEditorComponent::backgroundColourId,
-                         juce::Colours::transparentBlack);
-    inputBox_->setColour(juce::CodeEditorComponent::defaultTextColourId,
-                         DarkTheme::getTextColour());
-    inputBox_->setColour(juce::CodeEditorComponent::lineNumberBackgroundId,
-                         juce::Colours::transparentBlack);
-    inputBox_->setColour(juce::CodeEditorComponent::highlightColourId,
-                         DarkTheme::getColour(DarkTheme::ACCENT_BLUE).withAlpha(0.3f));
-    inputBox_->setColour(juce::CaretComponent::caretColourId, DarkTheme::getTextColour());
-    inputDocument_.addListener(this);
-    addAndMakeVisible(*inputBox_);
+    // Input box: TextEditor with multiline support. TextEditor handles IME
+    // correctly on Windows (CodeEditorComponent loses scroll position during
+    // CJK composition, causing Chinese text to drift off-screen).
+    inputBox_.setMultiLine(true, true);
+    inputBox_.setReturnKeyStartsNewLine(false);
+    inputBox_.setFont(monoFont);
+    inputBox_.setScrollbarsShown(true);
+    inputBox_.setColour(juce::TextEditor::backgroundColourId,
+                        DarkTheme::getColour(DarkTheme::BUTTON_NORMAL));
+    inputBox_.setColour(juce::TextEditor::textColourId, DarkTheme::getTextColour());
+    inputBox_.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+    inputBox_.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
+    inputBox_.setColour(juce::TextEditor::highlightColourId,
+                        DarkTheme::getColour(DarkTheme::ACCENT_BLUE).withAlpha(0.3f));
+    inputBox_.setColour(juce::CaretComponent::caretColourId, DarkTheme::getTextColour());
+    inputBox_.onTextChange = [this]() { onInputChanged(); };
+    inputBox_.onReturnKey = [this]() {
+        auto text = inputBox_.getText().trim();
+        if (text.isNotEmpty() && !processing_)
+            sendMessage(text);
+    };
+    inputBox_.onEscapeKey = [this]() {
+        if (autocompletePopup_ && autocompletePopup_->isVisible())
+            hideAutocomplete();
+    };
+    addAndMakeVisible(inputBox_);
 
-    // Register key listener for autocomplete navigation + Enter/Esc handling.
-    inputBox_->addKeyListener(this);
+    // Register key listener for autocomplete navigation (Up/Down/Tab).
+    inputBox_.addKeyListener(this);
 
     // Load context icons
     trackIconDrawable_ =
@@ -764,7 +782,7 @@ AIChatConsoleContent::AIChatConsoleContent() {
             cancelRequest();
             return;
         }
-        auto text = inputDocument_.getAllContent().trim();
+        auto text = inputBox_.getText().trim();
         if (text.isNotEmpty())
             sendMessage(text);
     };
@@ -783,7 +801,7 @@ AIChatConsoleContent::AIChatConsoleContent() {
     clearButton_.setTooltip("Clear chat");
     clearButton_.setAlpha(0.35f);
     clearButton_.onClick = [this]() {
-        chatHistory_.setText(juce::String::charToString(0x25C6) + " MAGDA\n\n");
+        chatHistory_.setText(juce::String::charToString(0x25C6) + " Blitz\n\n");
     };
     addAndMakeVisible(clearButton_);
 
@@ -815,7 +833,7 @@ AIChatConsoleContent::AIChatConsoleContent() {
     dslOutput_.setColour(juce::TextEditor::textColourId, juce::Colour(0xff88ff88));
     dslOutput_.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
     dslOutput_.setColour(juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
-    dslOutput_.setText("MAGDA DSL Console\nCtrl+Enter to execute.\n\n");
+    dslOutput_.setText("Blitz DSL Console\nCtrl+Enter to execute.\n\n");
 
     // DSL code editor
     dslEditor_ = std::make_unique<juce::CodeEditorComponent>(dslDocument_, &dslTokeniser_);
@@ -942,10 +960,7 @@ AIChatConsoleContent::AIChatConsoleContent() {
 AIChatConsoleContent::~AIChatConsoleContent() {
     if (dslEditor_)
         dslEditor_->removeKeyListener(this);
-    if (inputBox_) {
-        inputDocument_.removeListener(this);
-        inputBox_->removeKeyListener(this);
-    }
+    inputBox_.removeKeyListener(this);
     autocompletePopup_.reset();
     magda::Config::getInstance().removeListener(this);
     magda::ProjectManager::getInstance().removeListener(this);
@@ -1084,9 +1099,12 @@ void AIChatConsoleContent::sendMessage(const juce::String& text) {
     // Slash-command prefixes: rewrite user message with LLM context hints
     resolvedText = rewriteSlashCommand(resolvedText);
 
+    // Store user message in music memory
+    magda::MusicMemory::getInstance().addEntry("user", text.toStdString());
+
     processing_ = true;
     clearInput();
-    inputBox_->setEnabled(false);
+    inputBox_.setEnabled(false);
 
     // Swap send button to stop icon
     auto stopSvg =
@@ -1145,8 +1163,8 @@ void AIChatConsoleContent::cancelRequest() {
     processing_ = false;
 
     appendToChat("[cancelled]\n");
-    inputBox_->setEnabled(true);
-    inputBox_->grabKeyboardFocus();
+    inputBox_.setEnabled(true);
+    inputBox_.grabKeyboardFocus();
     restoreSendIcon();
 }
 
@@ -1191,12 +1209,10 @@ void AIChatConsoleContent::paint(juce::Graphics& g) {
     g.fillAll(DarkTheme::getPanelBackgroundColour());
 
     if (activeTab_ == ConsoleTab::AI) {
-        // Draw chat history + status footer as one rounded panel
+        // Draw border around chat history + status footer panel
         auto chatBounds = chatHistory_.getBounds().toFloat();
         auto statusBounds = configStatusLabel_.getBounds().toFloat();
         auto chatPanel = chatBounds.getUnion(statusBounds);
-        g.setColour(DarkTheme::getColour(DarkTheme::BUTTON_NORMAL));
-        g.fillRoundedRectangle(chatPanel, 4.0f);
         g.setColour(DarkTheme::getBorderColour());
         g.drawRoundedRectangle(chatPanel, 4.0f, 1.0f);
 
@@ -1205,13 +1221,11 @@ void AIChatConsoleContent::paint(juce::Graphics& g) {
         g.drawHorizontalLine(static_cast<int>(sepY), chatPanel.getX() + 1.0f,
                              chatPanel.getRight() - 1.0f);
 
-        // Draw input box + bottom bar as one unified rounded rectangle
-        auto inputBounds = inputBox_->getBounds();
+        // Draw border around input box + bottom bar
+        auto inputBounds = inputBox_.getBounds();
         auto barBounds = bottomBarBounds_;
         auto combined = inputBounds.getUnion(barBounds).toFloat();
 
-        g.setColour(DarkTheme::getColour(DarkTheme::BUTTON_NORMAL));
-        g.fillRoundedRectangle(combined, 4.0f);
         g.setColour(DarkTheme::getBorderColour());
         g.drawRoundedRectangle(combined, 4.0f, 1.0f);
 
@@ -1270,7 +1284,7 @@ void AIChatConsoleContent::resized() {
 
         // Input box directly above context bar (no gap — unified shape)
         auto inputArea = bounds.removeFromBottom(80);
-        inputBox_->setBounds(inputArea);
+        inputBox_.setBounds(inputArea);
 
         bounds.removeFromBottom(8);  // Spacing
 
@@ -1318,7 +1332,7 @@ void AIChatConsoleContent::onActivated() {
     updateConfigStatus();
     if (isShowing()) {
         if (activeTab_ == ConsoleTab::AI)
-            inputBox_->grabKeyboardFocus();
+            inputBox_.grabKeyboardFocus();
         else if (dslEditor_)
             dslEditor_->grabKeyboardFocus();
     }
@@ -1368,7 +1382,7 @@ void AIChatConsoleContent::switchTab(ConsoleTab tab) {
 
     // AI components
     chatHistory_.setVisible(isAI);
-    inputBox_->setVisible(isAI);
+    inputBox_.setVisible(isAI);
     sendButton_.setVisible(isAI);
     contextLabel_.setVisible(isAI);
     clearButton_.setVisible(isAI);
@@ -1384,7 +1398,7 @@ void AIChatConsoleContent::switchTab(ConsoleTab tab) {
     repaint();
 
     if (isAI)
-        inputBox_->grabKeyboardFocus();
+        inputBox_.grabKeyboardFocus();
     else
         dslEditor_->grabKeyboardFocus();
 }
@@ -1404,7 +1418,7 @@ void AIChatConsoleContent::executeDSL() {
 
     // Built-in commands
     if (code == "help") {
-        appendDSLOutput("MAGDA DSL Commands:\n"
+        appendDSLOutput("Blitz DSL Commands:\n"
                         "  track(name=\"X\")              - Reference/create track\n"
                         "  track(id=1)                  - Reference track by index\n"
                         "  .clip.new(bar=1, length_bars=4) - Create MIDI clip\n"
@@ -1453,7 +1467,7 @@ void AIChatConsoleContent::appendDSLOutput(const juce::String& text, juce::Colou
 
 void AIChatConsoleContent::projectOpened(const magda::ProjectInfo& /*info*/) {
     // Reset chat history
-    chatHistory_.setText(juce::String::charToString(0x25C6) + " MAGDA\n\n");
+    chatHistory_.setText(juce::String::charToString(0x25C6) + " Blitz\n\n");
 
     // Cancel any in-flight request
     cancelRequest();
@@ -1665,7 +1679,7 @@ void AIChatConsoleContent::showAutocomplete(const juce::String& filter) {
         addAndMakeVisible(*autocompletePopup_);
     }
 
-    auto inputBounds = inputBox_->getBounds();
+    auto inputBounds = inputBox_.getBounds();
     int popupWidth = inputBounds.getWidth();
     autocompletePopup_->setSize(popupWidth, 8 * 22 + 2);  // Initial size, updateFilter adjusts
     autocompletePopup_->updateFilter(filter);
@@ -1736,7 +1750,7 @@ void AIChatConsoleContent::showParamAutocomplete(const juce::String& pluginAlias
         addAndMakeVisible(*autocompletePopup_);
     }
 
-    auto inputBounds = inputBox_->getBounds();
+    auto inputBounds = inputBox_.getBounds();
     int popupWidth = inputBounds.getWidth();
     autocompletePopup_->setSize(popupWidth, 8 * 22 + 2);
     autocompletePopup_->updateParamFilter(std::move(entries), pluginAlias, filter);
@@ -1755,8 +1769,8 @@ void AIChatConsoleContent::showParamAutocomplete(const juce::String& pluginAlias
 
 void AIChatConsoleContent::insertParamAlias(const juce::String& pluginAlias,
                                             const juce::String& paramAlias) {
-    auto text = inputDocument_.getAllContent();
-    int caretPos = inputBox_->getCaretPos().getPosition();
+    auto text = inputBox_.getText();
+    int caretPos = inputBox_.getCaretPosition();
 
     int atPos = -1;
     for (int i = caretPos - 1; i >= 0; --i) {
@@ -1774,19 +1788,17 @@ void AIChatConsoleContent::insertParamAlias(const juce::String& pluginAlias,
         auto after = text.substring(caretPos);
         auto inserted = "@" + pluginAlias + "." + paramAlias;
         auto newText = before + inserted + " " + after;
-        inputDocument_.replaceAllContent(newText);
-        inputBox_->moveCaretTo(
-            juce::CodeDocument::Position(inputDocument_, atPos + (int)inserted.length() + 1),
-            false);
+        inputBox_.setText(newText, false);
+        inputBox_.setCaretPosition(atPos + (int)inserted.length() + 1);
     }
 
     hideAutocomplete();
-    inputBox_->grabKeyboardFocus();
+    inputBox_.grabKeyboardFocus();
 }
 
 void AIChatConsoleContent::insertAlias(const juce::String& alias) {
-    auto text = inputDocument_.getAllContent();
-    int caretPos = inputBox_->getCaretPos().getPosition();
+    auto text = inputBox_.getText();
+    int caretPos = inputBox_.getCaretPosition();
 
     // Find the @ that started this completion
     int atPos = -1;
@@ -1807,13 +1819,12 @@ void AIChatConsoleContent::insertAlias(const juce::String& alias) {
         auto before = text.substring(0, atPos);
         auto after = text.substring(caretPos);
         auto newText = before + "@" + alias + after;
-        inputDocument_.replaceAllContent(newText);
-        inputBox_->moveCaretTo(
-            juce::CodeDocument::Position(inputDocument_, atPos + 1 + (int)alias.length()), false);
+        inputBox_.setText(newText, false);
+        inputBox_.setCaretPosition(atPos + 1 + (int)alias.length());
     }
 
     hideAutocomplete();
-    inputBox_->grabKeyboardFocus();
+    inputBox_.grabKeyboardFocus();
 }
 
 bool AIChatConsoleContent::keyPressed(const juce::KeyPress& key, juce::Component*) {
@@ -1871,7 +1882,7 @@ bool AIChatConsoleContent::keyPressed(const juce::KeyPress& key, juce::Component
                     break;
             }
         }
-        auto text = inputDocument_.getAllContent().trim();
+        auto text = inputBox_.getText().trim();
         if (text.isNotEmpty() && !processing_)
             sendMessage(text);
         return true;
@@ -1914,32 +1925,10 @@ bool AIChatConsoleContent::keyPressed(const juce::KeyPress& key, juce::Component
     return false;
 }
 
-void AIChatConsoleContent::codeDocumentTextInserted(const juce::String& /*inserted*/,
-                                                    int /*insertIndex*/) {
-    // Defer to after the editor finishes settling its caret. The listener
-    // fires synchronously during the document mutation, while the editor
-    // updates its caret position after returning — checking caret-pos here
-    // would read a stale value and pick the wrong autocomplete branch.
-    juce::Component::SafePointer<AIChatConsoleContent> self(this);
-    juce::MessageManager::callAsync([self] {
-        if (self != nullptr)
-            self->onInputChanged();
-    });
-}
-
-void AIChatConsoleContent::codeDocumentTextDeleted(int /*startIndex*/, int /*endIndex*/) {
-    juce::Component::SafePointer<AIChatConsoleContent> self(this);
-    juce::MessageManager::callAsync([self] {
-        if (self != nullptr)
-            self->onInputChanged();
-    });
-}
-
 void AIChatConsoleContent::onInputChanged() {
-    if (!inputBox_)
-        return;
-    auto text = inputDocument_.getAllContent();
-    int caretPos = inputBox_->getCaretPos().getPosition();
+
+    auto text = inputBox_.getText();
+    int caretPos = inputBox_.getCaretPosition();
 
     // Slash commands at start of input
     if (text.startsWith("/")) {
@@ -2097,7 +2086,7 @@ void AIChatConsoleContent::showSlashAutocomplete(const juce::String& filter) {
         addAndMakeVisible(*autocompletePopup_);
     }
 
-    auto inputBounds = inputBox_->getBounds();
+    auto inputBounds = inputBox_.getBounds();
     int popupWidth = inputBounds.getWidth();
     autocompletePopup_->setSize(popupWidth, 8 * 22 + 2);
     autocompletePopup_->updateSlashFilter(filter);
@@ -2115,16 +2104,16 @@ void AIChatConsoleContent::showSlashAutocomplete(const juce::String& filter) {
 }
 
 void AIChatConsoleContent::insertSlashCommand(const juce::String& command) {
-    auto text = inputDocument_.getAllContent();
+    auto text = inputBox_.getText();
     // Find the end of the /command token
     int spacePos = text.indexOf(" ");
     auto after = (spacePos >= 0) ? text.substring(spacePos) : "";
     auto newText = "/" + command + " " + after.trimStart();
-    inputDocument_.replaceAllContent(newText);
-    inputBox_->moveCaretTo(juce::CodeDocument::Position(inputDocument_, newText.length()), false);
+    inputBox_.setText(newText, false);
+    inputBox_.setCaretPosition(newText.length());
 
     hideAutocomplete();
-    inputBox_->grabKeyboardFocus();
+    inputBox_.grabKeyboardFocus();
 }
 
 // ============================================================================
@@ -2298,7 +2287,7 @@ void AIChatConsoleContent::finishControllerGeneration(bool success, const juce::
         menu.addItem(9999, "Skip");
 
         menu.showMenuAsync(
-            juce::PopupMenu::Options().withTargetComponent(safeThis->inputBox_.get()),
+            juce::PopupMenu::Options().withTargetComponent(&safeThis->inputBox_),
             [safeThis, finalId, displayName, ports](int result) {
                 if (!safeThis || result <= 0 || result == 9999)
                     return;
@@ -2358,7 +2347,7 @@ void AIChatConsoleContent::finishControllerGeneration(bool success, const juce::
         auto baseId = profileId;
         auto displayName = profileName;
 
-        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(inputBox_.get()),
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&inputBox_),
                            [safeThis, writeAndPromptPort, rawJson, baseId, displayName](int r) {
                                if (!safeThis || r <= 0 || r == 9999) {
                                    if (safeThis)
@@ -2658,7 +2647,7 @@ static juce::String applyFourOscPresetToFocusedDevice(const magda::FourOscAgent:
         const juce::String trackName =
             preset.name.empty() ? juce::String("4OSC") : juce::String(preset.name);
         newDevice.name = "4OSC";
-        newDevice.manufacturer = "MAGDA";
+        newDevice.manufacturer = "Blitz";
         newDevice.pluginId = "4osc";
         newDevice.uniqueId = "4osc";
         newDevice.fileOrIdentifier = "4osc";
@@ -2754,15 +2743,8 @@ void AIChatConsoleContent::finishPresetGeneration(bool success, const juce::Stri
 }
 
 void AIChatConsoleContent::clearInput() {
-    inputDocument_.replaceAllContent({});
-    // Force a repaint — replaceAllContent fires document listeners but
-    // CodeEditorComponent caches its glyph layer per-line and on macOS
-    // (with our custom fonts) sometimes leaves stale pixels where the
-    // previous content was rendered. Repaint nukes the cache.
-    if (inputBox_) {
-        inputBox_->moveCaretToTop(false);
-        inputBox_->repaint();
-    }
+    inputBox_.setText("", false);
+    inputBox_.setCaretPosition(0);
 }
 
 }  // namespace magda::daw::ui

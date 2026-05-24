@@ -9,7 +9,7 @@
 static std::unique_ptr<magda::TracktionEngineWrapper> g_engine;
 
 bool magda_initialize() {
-    DBG("MAGDA v" << MAGDA_VERSION << " - Multi-Agent Generative Interface for Creative Audio");
+    DBG("Blitz v" << MAGDA_VERSION << " - AI-Driven Audio Workstation");
     DBG("Initializing system...");
 
     try {

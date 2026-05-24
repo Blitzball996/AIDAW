@@ -44,7 +44,6 @@ namespace magda::daw::ui {
 class AIChatConsoleContent : public PanelContent,
                              private juce::Timer,
                              private juce::KeyListener,
-                             private juce::CodeDocument::Listener,
                              public magda::SelectionManagerListener,
                              public magda::ProjectManagerListener,
                              public magda::ConfigListener {
@@ -100,19 +99,12 @@ class AIChatConsoleContent : public PanelContent,
 
     juce::TextEditor chatHistory_;
 
-    // Input box: CodeEditorComponent + ChatPromptTokeniser so @plugin and
-    // /command syntax pick up colour automatically. inputDocument_ holds the
-    // text; inputBox_ is the visible editor; we listen on the document for
-    // text changes (the autocomplete trigger) and intercept Enter / Esc via
-    // the KeyListener mixin already on this class.
-    juce::CodeDocument inputDocument_;
-    ChatPromptTokeniser inputTokeniser_;
-    std::unique_ptr<juce::CodeEditorComponent> inputBox_;
+    // Input box: TextEditor with manual colour highlighting for @plugin and
+    // /command tokens. TextEditor has reliable IME support on Windows (unlike
+    // CodeEditorComponent which loses scroll position during CJK composition).
+    juce::TextEditor inputBox_;
 
-    // CodeDocument::Listener — autocomplete trigger replaces TextEditor::onTextChange.
-    void codeDocumentTextInserted(const juce::String& text, int insertIndex) override;
-    void codeDocumentTextDeleted(int startIndex, int endIndex) override;
-    void onInputChanged();  // shared body for both insert / delete callbacks
+    void onInputChanged();  // autocomplete trigger on text change
 
     // Bottom bar: context icon + label + send button
     enum class ContextIcon { None, Track, Clip, Device };

@@ -1569,6 +1569,13 @@ te::Plugin::Ptr PluginManager::createPluginOnly(TrackId trackId, const DeviceInf
             if (internalSpec->canCreateDetached)
                 plugin = daw::audio::createInternalPluginFromSpec(*internalSpec, edit_, ps);
 
+            // SoundFont: parse program number from "soundfont:N" pluginId
+            if (plugin && internalSpec->kind == InternalDeviceKind::SoundFont &&
+                device.pluginId.contains(":")) {
+                int program = device.pluginId.fromLastOccurrenceOf(":", false, false).getIntValue();
+                plugin->state.setProperty(juce::Identifier("program"), program, nullptr);
+            }
+
             // DrumGrid stores its inner chain state in pluginState as XML;
             // rehydrate it for detached/rack creation so pad assignments survive.
             if (plugin && internalSpec->kind == InternalDeviceKind::DrumGrid &&
@@ -1746,6 +1753,13 @@ te::Plugin::Ptr PluginManager::loadDeviceAsPlugin(TrackId trackId, const DeviceI
                                                                   device.pluginState);
                 if (plugin)
                     track->pluginList.insertPlugin(plugin, insertIndex, nullptr);
+            }
+
+            // SoundFont: parse program number from "soundfont:N" pluginId
+            if (plugin && internalSpec->kind == InternalDeviceKind::SoundFont &&
+                device.pluginId.contains(":")) {
+                int program = device.pluginId.fromLastOccurrenceOf(":", false, false).getIntValue();
+                plugin->state.setProperty(juce::Identifier("program"), program, nullptr);
             }
 
             if (plugin && internalSpec->kind == InternalDeviceKind::DrumGrid) {

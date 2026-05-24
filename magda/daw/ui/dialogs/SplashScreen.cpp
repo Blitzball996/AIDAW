@@ -79,7 +79,7 @@ class SplashScreen::ContentComponent : public juce::Component {
         auto& fm = FontManager::getInstance();
         g.setFont(fm.getMicrogrammaFont(28.0f));
         g.setColour(juce::Colour(DarkTheme::TEXT_PRIMARY));
-        g.drawText("MAGDA", bounds.removeFromTop(40), juce::Justification::centred);
+        g.drawText("Blitz", bounds.removeFromTop(40), juce::Justification::centred);
 
         // Subtitle
         g.setFont(fm.getUIFont(14.0f));

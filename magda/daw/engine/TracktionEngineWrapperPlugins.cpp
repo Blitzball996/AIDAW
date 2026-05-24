@@ -1,3 +1,4 @@
+#include <ctime>
 #include <map>
 #include <set>
 #include <thread>
@@ -161,6 +162,23 @@ void TracktionEngineWrapper::abortPluginScan() {
         pluginScanCoordinator_->abortScan();
     }
     isScanning_ = false;
+}
+
+void TracktionEngineWrapper::triggerPluginRescan(
+    std::function<void(float, const juce::String&)> progressCallback) {
+    auto wrappedCompletion = onPluginScanComplete;
+    onPluginScanComplete = [this, wrappedCompletion](bool success, int numPlugins,
+                                                     const juce::StringArray& failed) {
+        if (success) {
+            auto now = static_cast<int64_t>(std::time(nullptr));
+            Config::getInstance().setLastScanTimestamp(now);
+            Config::getInstance().save();
+        }
+        onPluginScanComplete = wrappedCompletion;
+        if (wrappedCompletion)
+            wrappedCompletion(success, numPlugins, failed);
+    };
+    startPluginScan(progressCallback);
 }
 
 void TracktionEngineWrapper::clearPluginExclusions() {

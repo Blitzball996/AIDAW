@@ -1,5 +1,119 @@
 namespace llm {
 
+namespace {
+
+// Fallback HTTP POST via curl (works with TUN/VPN that JUCE WinINet misses)
+Response curlFallback(const juce::String& endpoint, const juce::String& body,
+                      const juce::StringPairArray& headers, double startTime) {
+    Response response;
+
+    auto tempDir = juce::File::getSpecialLocation(juce::File::tempDirectory);
+    auto tempBody = tempDir.getChildFile("magda_llm_req.json");
+    auto tempOut = tempDir.getChildFile("magda_llm_resp.txt");
+    tempBody.replaceWithText(body);
+    tempOut.deleteFile();
+
+    // Build curl command with full path
+#if JUCE_WINDOWS
+    juce::String curlExe = "C:\\Windows\\System32\\curl.exe";
+#else
+    juce::String curlExe = "/usr/bin/curl";
+#endif
+
+    juce::StringArray args;
+    args.add(curlExe);
+    args.add("-s");
+    args.add("-X");
+    args.add("POST");
+    args.add(endpoint);
+    args.add("--connect-timeout");
+    args.add("30");
+    args.add("--max-time");
+    args.add("120");
+    args.add("-d");
+    args.add("@" + tempBody.getFullPathName());
+
+    for (auto& key : headers.getAllKeys()) {
+        args.add("-H");
+        args.add(key + ": " + headers[key]);
+    }
+
+    // Write response body to file, status code to a separate file
+    auto tempStatus = tempDir.getChildFile("magda_llm_status.txt");
+    args.add("-o");
+    args.add(tempOut.getFullPathName());
+    args.add("-w");
+    args.add("%{http_code}");
+    args.add("--output-dir");  // not needed, -o is absolute
+
+    // Remove --output-dir, just use -o and write status to file
+    // Actually simpler: write everything to one file with status appended
+    args.clear();
+    args.add(curlExe);
+    args.add("-s");
+    args.add("-X");
+    args.add("POST");
+    args.add(endpoint);
+    args.add("--connect-timeout");
+    args.add("30");
+    args.add("--max-time");
+    args.add("120");
+    args.add("-d");
+    args.add("@" + tempBody.getFullPathName());
+
+    for (auto& key : headers.getAllKeys()) {
+        args.add("-H");
+        args.add(key + ": " + headers[key]);
+    }
+
+    // Output body to file, write http_code to status file
+    args.add("-o");
+    args.add(tempOut.getFullPathName());
+    args.add("-w");
+    args.add("%{http_code}");
+
+    juce::ChildProcess proc;
+    if (!proc.start(args)) {
+        response.error = "Failed to launch curl at " + curlExe;
+        response.wallSeconds = (juce::Time::getMillisecondCounterHiRes() - startTime) / 1000.0;
+        tempBody.deleteFile();
+        return response;
+    }
+
+    // Read stdout (contains http_code from -w) BEFORE waitForProcessToFinish
+    juce::String stdoutText;
+    while (proc.isRunning()) {
+        stdoutText += proc.readAllProcessOutput();
+        juce::Thread::sleep(50);
+    }
+    stdoutText += proc.readAllProcessOutput();
+    stdoutText = stdoutText.trim();
+
+    tempBody.deleteFile();
+
+    auto responseBody = tempOut.loadFileAsString();
+    tempOut.deleteFile();
+
+    int statusCode = stdoutText.getIntValue();
+    response.wallSeconds = (juce::Time::getMillisecondCounterHiRes() - startTime) / 1000.0;
+
+    if (statusCode == 0) {
+        response.error = "curl failed (no response) for " + endpoint;
+        return response;
+    }
+
+    if (statusCode < 200 || statusCode >= 300) {
+        response.error = "HTTP " + juce::String(statusCode) + ": " + responseBody.substring(0, 500);
+        return response;
+    }
+
+    response.text = responseBody;
+    response.success = true;
+    return response;
+}
+
+}  // namespace
+
 Response LLMClient::sendRequest(const Request& request) const {
     Response response;
     auto startTime = juce::Time::getMillisecondCounterHiRes();
@@ -22,14 +136,25 @@ Response LLMClient::sendRequest(const Request& request) const {
                        .withExtraHeaders(headerString)
                        .withStatusCode(&statusCode)
                        .withConnectionTimeoutMs(
-                           config_.connectionTimeoutMs > 0 ? config_.connectionTimeoutMs : 0);
+                           config_.connectionTimeoutMs > 0 ? config_.connectionTimeoutMs : 30000)
+                       .withNumRedirectsToFollow(5);
 
     auto stream = url.createInputStream(options);
 
     response.wallSeconds = (juce::Time::getMillisecondCounterHiRes() - startTime) / 1000.0;
 
     if (stream == nullptr) {
-        response.error = "Failed to connect to " + getEndpointUrl();
+        // JUCE WinINet failed — fallback to curl (handles TUN/VPN proxies)
+        auto fallback = curlFallback(getEndpointUrl(), body, headers, startTime);
+        if (fallback.success)
+            return parseResponseBody(fallback.text);
+        if (!fallback.error.isEmpty()) {
+            response.error = fallback.error;
+            response.wallSeconds = fallback.wallSeconds;
+            return response;
+        }
+        response.error = "Failed to connect to " + getEndpointUrl()
+                         + " (status=" + juce::String(statusCode) + ")";
         return response;
     }
 

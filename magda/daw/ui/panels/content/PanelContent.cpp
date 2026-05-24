@@ -30,6 +30,12 @@ juce::String getContentTypeName(PanelContentType type) {
             return tr("panels.drum_grid");
         case PanelContentType::AudioClipProperties:
             return tr("panels.properties");
+        case PanelContentType::BeatBox:
+            return "Beat Box";
+        case PanelContentType::ClipBrowser:
+            return "Clips";
+        case PanelContentType::VirtualKeyboard:
+            return "Keyboard";
     }
     return "Unknown";
 }
@@ -60,6 +66,12 @@ juce::String getContentTypeIcon(PanelContentType type) {
             return "DrumGrid";
         case PanelContentType::AudioClipProperties:
             return "Properties";
+        case PanelContentType::BeatBox:
+            return "DrumGrid";
+        case PanelContentType::ClipBrowser:
+            return "Sample";
+        case PanelContentType::VirtualKeyboard:
+            return "Keyboard";
     }
     return "Unknown";
 }

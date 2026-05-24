@@ -15,6 +15,7 @@
 #include "../views/MixerView.hpp"
 #include "../views/SessionView.hpp"
 #include "MainWindow.hpp"
+#include "../panels/state/PanelController.hpp"
 #include "audio/AudioBridge.hpp"
 #include "core/LinkModeManager.hpp"
 #include "core/ViewModeController.hpp"
@@ -64,7 +65,7 @@ void MainWindow::MainComponent::getAllCommands(juce::Array<juce::CommandID>& com
         // Track
         newAudioTrack, newMidiTrack, deleteTrack,
         // View
-        zoom, toggleArrangeSession, uiScaleUp, uiScaleDown,
+        zoom, toggleArrangeSession, uiScaleUp, uiScaleDown, showVirtualKeyboard,
         // Help
         showHelp, about};
 
@@ -223,6 +224,10 @@ void MainWindow::MainComponent::getCommandInfo(juce::CommandID commandID,
             result.addDefaultKeypress('-', juce::ModifierKeys::commandModifier);
             result.addDefaultKeypress('_', juce::ModifierKeys::commandModifier |
                                                juce::ModifierKeys::shiftModifier);
+            break;
+        case showVirtualKeyboard:
+            result.setInfo("Virtual Keyboard", "Toggle virtual MIDI keyboard", "View", 0);
+            result.addDefaultKeypress('k', 0);
             break;
 
         // Help
@@ -951,6 +956,20 @@ bool MainWindow::MainComponent::perform(const InvocationInfo& info) {
                 static_cast<double>(juce::Desktop::getInstance().getGlobalScaleFactor());
             const int direction = (info.commandID == uiScaleUp) ? +1 : -1;
             applyUIScale(stepUIScale(current, direction));
+            return true;
+        }
+
+        case showVirtualKeyboard: {
+            auto& pc = daw::ui::PanelController::getInstance();
+            auto loc = daw::ui::PanelLocation::Bottom;
+            const auto& state = pc.getPanelState(loc);
+            if (!state.collapsed &&
+                state.getActiveContentType() == daw::ui::PanelContentType::VirtualKeyboard) {
+                pc.setCollapsed(loc, true);
+            } else {
+                pc.setCollapsed(loc, false);
+                pc.setActiveTabByType(loc, daw::ui::PanelContentType::VirtualKeyboard);
+            }
             return true;
         }
 

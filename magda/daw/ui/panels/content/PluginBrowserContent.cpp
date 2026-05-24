@@ -11,6 +11,7 @@
 #include "audio/plugins/FaustPlugin.hpp"
 #include "audio/plugins/MagdaSamplerPlugin.hpp"
 #include "audio/plugins/MidiChordEnginePlugin.hpp"
+#include "audio/plugins/SoundFontPlugin.hpp"
 #include "audio/plugins/StepSequencerPlugin.hpp"
 #include "audio/plugins/compiled/CompiledPluginRegistry.hpp"
 #include "core/AppPaths.hpp"
@@ -96,9 +97,28 @@ class PluginBrowserContent::PluginTreeItem : public juce::TreeViewItem {
         // Plugin type icon
         auto iconArea = bounds.removeFromLeft(18);
         auto iconBounds = iconArea.toFloat().reduced(1.0f);
-        if (plugin_.category == "Instrument" && owner_.instrumentIcon_) {
-            owner_.instrumentIcon_->drawWithin(g, iconBounds, juce::RectanglePlacement::centred,
-                                               1.0f);
+        if (plugin_.category == "Instrument") {
+            juce::Colour badgeColour;
+            juce::String badgeText;
+            if (plugin_.subcategory == "Piano")          { badgeColour = juce::Colour(0xFF7B42C8); badgeText = "Pi"; }
+            else if (plugin_.subcategory == "Guitar")    { badgeColour = juce::Colour(0xFFF09040); badgeText = "Gt"; }
+            else if (plugin_.subcategory == "Bass")      { badgeColour = juce::Colour(0xFFC03050); badgeText = "Ba"; }
+            else if (plugin_.subcategory == "Strings")   { badgeColour = juce::Colour(0xFF4CD964); badgeText = "St"; }
+            else if (plugin_.subcategory == "Brass")     { badgeColour = juce::Colour(0xFFF0B030); badgeText = "Br"; }
+            else if (plugin_.subcategory == "Woodwind")  { badgeColour = juce::Colour(0xFF5AC8FA); badgeText = "Ww"; }
+            else if (plugin_.subcategory == "Drums")     { badgeColour = juce::Colour(0xFFFF3B30); badgeText = "Dr"; }
+            else if (plugin_.subcategory == "Synth")     { badgeColour = juce::Colour(0xFF4A90D9); badgeText = "Sy"; }
+            else if (plugin_.subcategory == "Pad")       { badgeColour = juce::Colour(0xFF30C0A0); badgeText = "Pd"; }
+            else if (plugin_.subcategory == "Organ")     { badgeColour = juce::Colour(0xFF8E8E93); badgeText = "Or"; }
+            else if (plugin_.subcategory == "Chromatic") { badgeColour = juce::Colour(0xFFFF6B9D); badgeText = "Ch"; }
+            else                                         { badgeColour = juce::Colour(0xFF7B42C8); badgeText = "In"; }
+
+            auto badgeRect = iconBounds.withSizeKeepingCentre(12.0f, 12.0f);
+            g.setColour(badgeColour);
+            g.fillRoundedRectangle(badgeRect, 2.5f);
+            g.setColour(juce::Colours::white);
+            g.setFont(FontManager::getInstance().getUIFont(7.0f));
+            g.drawText(badgeText, badgeRect.toNearestInt(), juce::Justification::centred);
         } else if (plugin_.subcategory == "MIDI" && owner_.midiIcon_) {
             owner_.midiIcon_->drawWithin(g, iconBounds, juce::RectanglePlacement::centred, 1.0f);
         } else if (owner_.effectIcon_) {
@@ -350,6 +370,58 @@ std::vector<PluginBrowserInfo> PluginBrowserContent::getInternalPlugins() {
         PluginBrowserInfo::createInternal("Sampler", audio::MagdaSamplerPlugin::xmlTypeName, true));
     list.push_back(PluginBrowserInfo::createInternal(audio::DrumGridPlugin::getPluginName(),
                                                      audio::DrumGridPlugin::xmlTypeName, true));
+    list.push_back(PluginBrowserInfo::createInternal(audio::SoundFontPlugin::getPluginName(),
+                                                     audio::SoundFontPlugin::xmlTypeName, true,
+                                                     "Synth"));
+    // GM instrument presets shown as individual entries under their categories
+    static const struct {
+        const char* name;
+        const char* category;
+        int program;
+    } kGMInstruments[] = {
+        // Piano (0-7)
+        {"Grand Piano", "Piano", 0}, {"Bright Piano", "Piano", 1}, {"Electric Grand", "Piano", 2},
+        {"Honky-Tonk", "Piano", 3}, {"Electric Piano 1", "Piano", 4}, {"Electric Piano 2", "Piano", 5},
+        {"Harpsichord", "Piano", 6}, {"Clavinet", "Piano", 7},
+        // Chromatic Percussion (8-15)
+        {"Celesta", "Chromatic", 8}, {"Glockenspiel", "Chromatic", 9}, {"Music Box", "Chromatic", 10},
+        {"Vibraphone", "Chromatic", 11}, {"Marimba", "Chromatic", 12}, {"Xylophone", "Chromatic", 13},
+        // Organ (16-23)
+        {"Drawbar Organ", "Organ", 16}, {"Percussive Organ", "Organ", 17}, {"Rock Organ", "Organ", 18},
+        {"Church Organ", "Organ", 19}, {"Accordion", "Organ", 21},
+        // Guitar (24-31)
+        {"Nylon Guitar", "Guitar", 24}, {"Steel Guitar", "Guitar", 25}, {"Jazz Guitar", "Guitar", 26},
+        {"Clean Electric", "Guitar", 27}, {"Muted Guitar", "Guitar", 28},
+        {"Overdriven Guitar", "Guitar", 29}, {"Distortion Guitar", "Guitar", 30},
+        // Bass (32-39)
+        {"Acoustic Bass", "Bass", 32}, {"Finger Bass", "Bass", 33}, {"Pick Bass", "Bass", 34},
+        {"Fretless Bass", "Bass", 35}, {"Slap Bass 1", "Bass", 36}, {"Synth Bass 1", "Bass", 38},
+        {"Synth Bass 2", "Bass", 39},
+        // Strings (40-55)
+        {"Violin", "Strings", 40}, {"Viola", "Strings", 41}, {"Cello", "Strings", 42},
+        {"Contrabass", "Strings", 43}, {"Tremolo Strings", "Strings", 44},
+        {"Pizzicato Strings", "Strings", 45}, {"Orchestral Harp", "Strings", 46},
+        {"String Ensemble 1", "Strings", 48}, {"String Ensemble 2", "Strings", 49},
+        {"Synth Strings 1", "Strings", 50},
+        // Brass (56-63)
+        {"Trumpet", "Brass", 56}, {"Trombone", "Brass", 57}, {"Tuba", "Brass", 58},
+        {"French Horn", "Brass", 60}, {"Brass Section", "Brass", 61}, {"Synth Brass 1", "Brass", 62},
+        // Woodwind (64-79)
+        {"Soprano Sax", "Woodwind", 64}, {"Alto Sax", "Woodwind", 65}, {"Tenor Sax", "Woodwind", 66},
+        {"Oboe", "Woodwind", 68}, {"Clarinet", "Woodwind", 71}, {"Flute", "Woodwind", 73},
+        {"Piccolo", "Woodwind", 72}, {"Pan Flute", "Woodwind", 75},
+        // Synth Lead (80-87)
+        {"Square Lead", "Synth", 80}, {"Sawtooth Lead", "Synth", 81}, {"Calliope Lead", "Synth", 82},
+        {"Synth Voice", "Synth", 85},
+        // Synth Pad (88-95)
+        {"New Age Pad", "Pad", 88}, {"Warm Pad", "Pad", 89}, {"Polysynth Pad", "Pad", 90},
+        {"Space Voice Pad", "Pad", 91}, {"Sweep Pad", "Pad", 95},
+    };
+    for (const auto& gm : kGMInstruments) {
+        auto pluginId = juce::String("soundfont:") + juce::String(gm.program);
+        list.push_back(
+            PluginBrowserInfo::createInternal(juce::String(gm.name), pluginId, true, gm.category));
+    }
     list.push_back(PluginBrowserInfo::createInternal(audio::MidiChordEnginePlugin::getPluginName(),
                                                      audio::MidiChordEnginePlugin::xmlTypeName,
                                                      false, "MIDI"));
@@ -374,7 +446,7 @@ std::vector<PluginBrowserInfo> PluginBrowserContent::getInternalPlugins() {
         PluginBrowserInfo::createInternal("IR Reverb", "impulseresponse", false, "Reverb"));
     list.push_back(PluginBrowserInfo::createInternal(audio::FaustPlugin::getPluginName(),
                                                      audio::FaustPlugin::xmlTypeName, false,
-                                                     "Experimental"));
+                                                     "DSP"));
     return list;
 }
 

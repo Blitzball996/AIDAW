@@ -20,6 +20,7 @@ target_sources(magda_daw_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/BeatBoxContent.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ClipBrowserContent.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/QuantizeDialog.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/VirtualKeyboardContent.cpp
     PanelContent.hpp
     PanelContentFactory.hpp
     PluginBrowserContent.hpp
@@ -36,6 +37,7 @@ target_sources(magda_daw_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/BeatBoxContent.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ClipBrowserContent.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/QuantizeDialog.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/VirtualKeyboardContent.hpp
 )
 
 add_subdirectory(inspector)

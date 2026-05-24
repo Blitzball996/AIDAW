@@ -13,6 +13,7 @@
 #include "audio/plugins/MidiChordEnginePlugin.hpp"
 #include "audio/plugins/MidiReceivePlugin.hpp"
 #include "audio/plugins/SidechainMonitorPlugin.hpp"
+#include "audio/plugins/SoundFontPlugin.hpp"
 #include "audio/plugins/StepSequencerPlugin.hpp"
 #include "audio/plugins/compiled/CompiledPluginRegistry.hpp"
 #include "audio/session/SessionMonitorPlugin.hpp"
@@ -34,9 +35,14 @@ struct Mapping {
 };
 
 bool matches(const juce::String& id, const char* a, const char* b) {
-    if (id.equalsIgnoreCase(a))
+    if (a != nullptr && id.equalsIgnoreCase(a))
         return true;
-    return b != nullptr && id.equalsIgnoreCase(b);
+    if (b != nullptr && id.equalsIgnoreCase(b))
+        return true;
+    // Support "soundfont:N" prefix matching for GM instrument variants
+    if (a != nullptr && id.startsWith(juce::String(a) + ":"))
+        return true;
+    return false;
 }
 
 const InternalDeviceMetadata kMetadata[] = {
@@ -86,6 +92,8 @@ const InternalDeviceMetadata kMetadata[] = {
      "Internal meter tap used to observe instrument output levels."},
     {InternalDeviceKind::SessionMonitor, "Session Monitor", "", "Session",
      "Internal monitor used by session playback and launch state."},
+    {InternalDeviceKind::SoundFont, "SoundFont Player", "", "Synth",
+     "SF2-based multi-timbral instrument using TinySoundFont."},
     {InternalDeviceKind::Faust, "Faust", "", "Experimental",
      "Interpreted Faust device for loading and editing user DSP code."},
 };
@@ -132,6 +140,7 @@ InternalDeviceKind classifyInternalDevice(const juce::String& pluginId) {
     using daw::audio::InstrumentMeterTapPlugin;
     using daw::audio::MagdaSamplerPlugin;
     using daw::audio::MidiChordEnginePlugin;
+    using daw::audio::SoundFontPlugin;
     using daw::audio::StepSequencerPlugin;
     namespace TE = tracktion::engine;
 
@@ -160,6 +169,7 @@ InternalDeviceKind classifyInternalDevice(const juce::String& pluginId) {
         {InternalDeviceKind::Arpeggiator, ArpeggiatorPlugin::xmlTypeName, nullptr},
         {InternalDeviceKind::StepSequencer, StepSequencerPlugin::xmlTypeName, nullptr},
         {InternalDeviceKind::InstrumentMeterTap, InstrumentMeterTapPlugin::xmlTypeName, nullptr},
+        {InternalDeviceKind::SoundFont, SoundFontPlugin::xmlTypeName, nullptr},
         {InternalDeviceKind::Faust, FaustPlugin::xmlTypeName, nullptr},
         // Plugins still in plain magda:: (older infra layers).
         {InternalDeviceKind::MidiReceive, MidiReceivePlugin::xmlTypeName, nullptr},

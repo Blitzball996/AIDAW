@@ -47,6 +47,10 @@ dsl_grammar.hpp
     four_osc_agent.cpp
     four_osc_apply.hpp
     four_osc_apply.cpp
+    four_osc_factory_presets.hpp
+    four_osc_factory_presets.cpp
+    music_memory.hpp
+    music_memory.cpp
     faust_agent.hpp
     faust_agent.cpp
     device_ai_agent.hpp

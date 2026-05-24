@@ -311,6 +311,14 @@ class TracktionEngineWrapper : public AudioEngine,
         std::function<void(float, const juce::String&)> progressCallback = nullptr);
 
     /**
+     * @brief Force a full rescan of all plugin directories (VST3, CLAP).
+     * Updates the lastScanTimestamp in config on completion.
+     * Can be called from the UI to manually trigger a rescan.
+     */
+    void triggerPluginRescan(
+        std::function<void(float, const juce::String&)> progressCallback = nullptr);
+
+    /**
      * @brief Abort an in-progress plugin scan
      */
     void abortPluginScan();

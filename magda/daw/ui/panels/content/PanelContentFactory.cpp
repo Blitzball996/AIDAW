@@ -2,6 +2,8 @@
 
 // Include all content implementations for registration
 #include "AIChatConsoleContent.hpp"
+#include "BeatBoxContent.hpp"
+#include "ClipBrowserContent.hpp"
 #include "DrumGridClipContent.hpp"
 #include "EmptyContent.hpp"
 #include "MediaExplorerContent.hpp"
@@ -10,6 +12,7 @@
 #include "PresetBrowserContent.hpp"
 #include "ScriptingConsoleContent.hpp"
 #include "TrackChainContent.hpp"
+#include "VirtualKeyboardContent.hpp"
 #include "WaveformEditorContent.hpp"
 #include "inspector/InspectorContainer.hpp"
 
@@ -57,6 +60,15 @@ void PanelContentFactory::registerBuiltinTypes() {
 
     registerContentType(PanelContentType::DrumGridClipView,
                         []() { return std::make_unique<DrumGridClipContent>(); });
+
+    registerContentType(PanelContentType::BeatBox,
+                        []() { return std::make_unique<BeatBoxContent>(); });
+
+    registerContentType(PanelContentType::ClipBrowser,
+                        []() { return std::make_unique<ClipBrowserContent>(); });
+
+    registerContentType(PanelContentType::VirtualKeyboard,
+                        []() { return std::make_unique<VirtualKeyboardContent>(); });
 }
 
 void PanelContentFactory::registerContentType(PanelContentType type, ContentCreator creator) {
@@ -90,3 +102,4 @@ PanelContentInfo PanelContentFactory::getContentInfo(PanelContentType type) cons
 }
 
 }  // namespace magda::daw::ui
+

@@ -26,7 +26,7 @@ class DarkTheme {
     static constexpr auto BUTTON_NORMAL = 0xFF3A3A3A;         // Normal button
     static constexpr auto BUTTON_HOVER = 0xFF4A4A4A;          // Hovered button
     static constexpr auto BUTTON_PRESSED = 0xFF555555;        // Pressed button
-    static constexpr auto BUTTON_ACTIVE = 0xFF4A90D9;         // Active (Logic blue)
+    static constexpr auto BUTTON_ACTIVE = 0xFF7B42C8;         // Active (purple)
     static constexpr auto BUTTON_STROKE = 0xFF505050;         // Button border
 
     // ==========================================================================
@@ -38,14 +38,14 @@ class DarkTheme {
     static constexpr auto TEXT_DISABLED = 0xFF5A5A5A;   // Disabled text
 
     // ==========================================================================
-    // Accent colors (Logic Pro palette)
+    // Accent colors (AIDAW purple-gold palette)
     // ==========================================================================
-    static constexpr auto ACCENT_BLUE = 0xFF4A90D9;          // Primary accent (Logic blue)
-    static constexpr auto ACCENT_BLUE_LIGHT = 0xFF6AAFEF;    // Light blue
-    static constexpr auto ACCENT_CYAN = 0xFF5AC8FA;          // Cyan (selection)
+    static constexpr auto ACCENT_BLUE = 0xFF7B42C8;          // Primary accent (purple)
+    static constexpr auto ACCENT_BLUE_LIGHT = 0xFF9B62E8;    // Light purple
+    static constexpr auto ACCENT_CYAN = 0xFFF0B030;          // Gold (selection highlight)
     static constexpr auto ACCENT_GREEN = 0xFF4CD964;         // Green (enabled, play)
-    static constexpr auto ACCENT_ORANGE = 0xFFFF9500;        // Orange (automation)
-    static constexpr auto ACCENT_PURPLE = 0xFFAF52DE;        // Purple accent
+    static constexpr auto ACCENT_ORANGE = 0xFFF09040;        // Orange (automation)
+    static constexpr auto ACCENT_PURPLE = 0xFF5000A0;        // Deep purple accent
     static constexpr auto MASTER_TRACK_COLOUR = 0xFF8E8E93;  // Master track (gray)
 
     // ==========================================================================
@@ -93,10 +93,10 @@ class DarkTheme {
     // ==========================================================================
     // Selection and loop regions
     // ==========================================================================
-    static constexpr auto TIME_SELECTION = 0x334A90D9;  // Semi-transparent blue
-    static constexpr auto LOOP_REGION = 0x20FFFF00;     // Yellow tint for loop
-    static constexpr auto LOOP_MARKER = 0xFFFFCC00;     // Yellow loop markers (Logic style)
-    static constexpr auto OFFSET_MARKER = 0xFFFF9500;   // Orange offset marker
+    static constexpr auto TIME_SELECTION = 0x337B42C8;  // Semi-transparent purple
+    static constexpr auto LOOP_REGION = 0x20F0B030;     // Gold tint for loop
+    static constexpr auto LOOP_MARKER = 0xFFF0B030;     // Gold loop markers
+    static constexpr auto OFFSET_MARKER = 0xFFF09040;   // Orange offset marker
 
     // Apply the theme to JUCE's LookAndFeel
     static void applyToLookAndFeel(juce::LookAndFeel_V4& laf);

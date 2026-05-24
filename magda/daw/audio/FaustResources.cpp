@@ -40,6 +40,14 @@ std::vector<StarterDsp> getBundledStarterDsps() {
         {"Delay", "magda_delay.dsp", "magda_delay_dsp", FaustCustomViewKind::None},
         {"Granular Delay", "magda_granular_delay.dsp", "magda_granular_delay_dsp",
          FaustCustomViewKind::None},
+        {"Shimmer Verb", "blitz_fm_synth.dsp", "blitz_fm_synth_dsp", FaustCustomViewKind::None},
+        {"Tape Warble", "blitz_wavetable_synth.dsp", "blitz_wavetable_synth_dsp",
+         FaustCustomViewKind::None},
+        {"Stereo Widener", "blitz_string_synth.dsp", "blitz_string_synth_dsp",
+         FaustCustomViewKind::None},
+        {"Analog Warmth", "blitz_analog_synth.dsp", "blitz_analog_synth_dsp",
+         FaustCustomViewKind::None},
+        {"Space Echo", "blitz_pad_synth.dsp", "blitz_pad_synth_dsp", FaustCustomViewKind::None},
     };
 
     std::vector<StarterDsp> out;

@@ -19,7 +19,8 @@ struct MagdaPresetMenuActions {
 };
 
 void showMagdaPresetMenu(juce::Component* targetComponent, const juce::String& pluginFolder,
-                         const juce::String& currentPresetName, MagdaPresetMenuActions actions);
+                         const juce::String& currentPresetName, MagdaPresetMenuActions actions,
+                         const magda::ChainNodePath& deviceNodePath = {});
 
 std::optional<magda::DeviceInfo> snapshotDeviceForPreset(const magda::DeviceInfo& fallbackDevice,
                                                          const magda::ChainNodePath& nodePath);

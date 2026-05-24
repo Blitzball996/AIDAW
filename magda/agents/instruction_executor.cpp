@@ -116,6 +116,14 @@ bool InstructionExecutor::execute(const std::vector<Instruction>& instructions) 
                 pendingContentEndBeats_ = std::max(pendingContentEndBeats_, a.beat + span);
                 break;
             }
+            case OpCode::Repeat: {
+                const auto& r = std::get<RepeatOp>(inst.payload);
+                double rangeLen = r.toBeat - r.fromBeat;
+                if (rangeLen > 0.0 && r.times > 0)
+                    pendingContentEndBeats_ =
+                        std::max(pendingContentEndBeats_, r.pasteAt + rangeLen * r.times);
+                break;
+            }
             default:
                 break;
         }
@@ -211,6 +219,12 @@ bool InstructionExecutor::execute(const std::vector<Instruction>& instructions) 
             case OpCode::Note:
                 ok = executeNote(std::get<NoteOp>(inst.payload));
                 break;
+            case OpCode::TrackSwitch:
+                ok = executeTrackSwitch(std::get<TrackSwitchOp>(inst.payload));
+                break;
+            case OpCode::Repeat:
+                ok = executeRepeat(std::get<RepeatOp>(inst.payload));
+                break;
         }
 
         if (ok) {
@@ -236,9 +250,17 @@ bool InstructionExecutor::execute(const std::vector<Instruction>& instructions) 
 
 bool InstructionExecutor::autoCreateClip() {
     if (currentTrackId_ < 0) {
-        error_ = "No track context - use TRACK first or select a track";
-        DBG("InstructionExecutor::autoCreateClip FAIL: " + error_);
-        return false;
+        // No track selected — auto-create one so generated music doesn't vanish
+        auto trackId = api_.tracks().createTrack("AI Music", TrackType::Audio);
+        if (trackId < 0) {
+            error_ = "No track context and failed to auto-create track";
+            DBG("InstructionExecutor::autoCreateClip FAIL: " + error_);
+            return false;
+        }
+        currentTrackId_ = trackId;
+        results_.add("Created track 'AI Music'");
+        DBG("InstructionExecutor::autoCreateClip auto-created track id=" +
+            juce::String(trackId));
     }
 
     // Create a clip at bar 1 sized to the pending content, with a 4-bar
@@ -861,6 +883,73 @@ bool InstructionExecutor::executeNote(const NoteOp& op) {
         currentClipId_, op.beat, noteNumber, op.length, velocity));
 
     results_.add("Added note " + op.pitch);
+    return true;
+}
+
+bool InstructionExecutor::executeTrackSwitch(const TrackSwitchOp& op) {
+    int trackId = findTrackByName(op.name);
+    if (trackId < 0) {
+        // Create the track if it doesn't exist
+        trackId = api_.tracks().createTrack(op.name.toStdString(), TrackType::Audio);
+        if (trackId < 0) {
+            error_ = "Failed to create track: " + op.name;
+            return false;
+        }
+        results_.add("Created track: " + op.name);
+    }
+
+    currentTrackId_ = trackId;
+    currentClipId_ = -1;  // Reset clip — will auto-create on next note/chord
+    results_.add("Switched to track: " + op.name);
+    return true;
+}
+
+bool InstructionExecutor::executeRepeat(const RepeatOp& op) {
+    if (currentClipId_ < 0) {
+        error_ = "No clip to repeat from";
+        return false;
+    }
+
+    if (op.toBeat <= op.fromBeat || op.times <= 0) {
+        error_ = "Invalid repeat range";
+        return false;
+    }
+
+    // Get all notes in the source range
+    auto* clipInfo = api_.clips().getClip(currentClipId_);
+    if (!clipInfo) {
+        error_ = "Clip not found";
+        return false;
+    }
+
+    // Collect notes in [fromBeat, toBeat)
+    std::vector<std::tuple<double, int, double, int>> sourceNotes;  // beat, note, length, vel
+    for (const auto& note : clipInfo->midiNotes) {
+        if (note.startBeat >= op.fromBeat && note.startBeat < op.toBeat) {
+            sourceNotes.emplace_back(note.startBeat - op.fromBeat, note.noteNumber,
+                                     note.lengthBeats, note.velocity);
+        }
+    }
+
+    if (sourceNotes.empty()) {
+        error_ = "No notes in repeat source range";
+        return false;
+    }
+
+    double rangeLength = op.toBeat - op.fromBeat;
+    int totalAdded = 0;
+
+    for (int t = 0; t < op.times; ++t) {
+        double offset = op.pasteAt + t * rangeLength;
+        for (const auto& [beat, noteNum, length, vel] : sourceNotes) {
+            api_.undo().executeCommand(std::make_unique<AddMidiNoteCommand>(
+                currentClipId_, beat + offset, noteNum, length, vel));
+            ++totalAdded;
+        }
+    }
+
+    results_.add("Repeated " + juce::String(static_cast<int>(sourceNotes.size())) + " notes x" +
+                 juce::String(op.times) + " (" + juce::String(totalAdded) + " notes added)");
     return true;
 }
 

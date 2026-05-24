@@ -19,7 +19,10 @@ enum class PanelContentType {
     PianoRoll,
     WaveformEditor,
     DrumGridClipView,
-    AudioClipProperties
+    AudioClipProperties,
+    BeatBox,
+    ClipBrowser,
+    VirtualKeyboard
 };
 
 /**

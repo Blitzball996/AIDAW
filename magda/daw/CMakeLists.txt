@@ -72,6 +72,7 @@ juce_add_binary_data(MagdaAssets
     ../../assets/icons/general/save.svg
     ../../assets/icons/general/folder-open.svg
     ../../assets/icons/general/piano_roll.svg
+    ../../assets/icons/general/pencil.svg
     ../../assets/icons/general/drum_grid.svg
     ../../assets/icons/general/faust-logo.svg
     ../../assets/icons/general/faust-text-logo.svg
@@ -237,6 +238,11 @@ juce_add_binary_data(MagdaAssets
     audio/faust_dsp/magda_filter_oberheim.dsp
     audio/faust_dsp/magda_filter_sk.dsp
     audio/faust_dsp/magda_filter_diode.dsp
+    audio/faust_dsp/blitz_fm_synth.dsp
+    audio/faust_dsp/blitz_wavetable_synth.dsp
+    audio/faust_dsp/blitz_string_synth.dsp
+    audio/faust_dsp/blitz_analog_synth.dsp
+    audio/faust_dsp/blitz_pad_synth.dsp
 )
 
 # =============================================================================
@@ -254,12 +260,12 @@ add_library(magda_daw STATIC
 # JUCE GUI app — sources contributed below via add_subdirectory().
 juce_add_gui_app(magda_daw_app
     VERSION "0.1.0"
-    COMPANY_NAME "MAGDA"
-    PRODUCT_NAME "MAGDA"
+    COMPANY_NAME "Blitz"
+    PRODUCT_NAME "Blitz"
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/../../assets/app_icon.png"
     ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/../../assets/app_icon.png"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "MAGDA needs microphone access to record audio."
+    MICROPHONE_PERMISSION_TEXT "Blitz needs microphone access to record audio."
     PLIST_TO_MERGE
     "<plist version=\"1.0\"><dict>
         <key>NSDocumentsFolderUsageDescription</key>
@@ -440,6 +446,7 @@ target_include_directories(magda_daw
     PRIVATE
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/third_party/faust/architecture
+    ${CMAKE_SOURCE_DIR}/third_party/tsf
 )
 
 target_include_directories(magda_daw_app
@@ -593,5 +600,24 @@ else()
             "${MAGDA_FAUST_LIBS_SRC}"
             "$<TARGET_FILE_DIR:magda_daw_app>/faustlibraries"
         COMMENT "Copying Faust standard libraries alongside app executable"
+    )
+endif()
+
+# Copy soundfonts directory next to the executable so SoundFontPlugin can
+# locate GeneralUser_GS.sf2 at runtime via exe_dir/soundfonts/.
+set(MAGDA_SOUNDFONTS_SRC "${CMAKE_SOURCE_DIR}/assets/soundfonts")
+if(APPLE)
+    add_custom_command(TARGET magda_daw_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${MAGDA_SOUNDFONTS_SRC}"
+            "$<TARGET_BUNDLE_CONTENT_DIR:magda_daw_app>/Resources/soundfonts"
+        COMMENT "Copying SoundFont files to app bundle Resources"
+    )
+else()
+    add_custom_command(TARGET magda_daw_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${MAGDA_SOUNDFONTS_SRC}"
+            "$<TARGET_FILE_DIR:magda_daw_app>/soundfonts"
+        COMMENT "Copying SoundFont files alongside app executable"
     )
 endif()

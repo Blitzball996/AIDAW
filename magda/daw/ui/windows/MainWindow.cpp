@@ -183,7 +183,7 @@ class MainWindow::MainComponent::ResizeHandle : public juce::Component {
 
 // MainWindow implementation
 MainWindow::MainWindow(AudioEngine* audioEngine)
-    : DocumentWindow("MAGDA", DarkTheme::getBackgroundColour(), DocumentWindow::allButtons),
+    : DocumentWindow("Blitz", DarkTheme::getBackgroundColour(), DocumentWindow::allButtons),
       externalAudioEngine_(audioEngine) {
     juce::Logger::writeToLog("[MainWindow] Constructor started");
 #if JUCE_LINUX
@@ -329,7 +329,7 @@ void MainWindow::applyLayoutFromConfig() {
 
 void MainWindow::updateWindowTitle() {
     auto& pm = ProjectManager::getInstance();
-    juce::String title = "MAGDA";
+    juce::String title = "Blitz";
     if (pm.hasOpenProject()) {
         auto name = pm.getProjectName();
         if (name.isNotEmpty())

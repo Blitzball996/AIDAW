@@ -166,6 +166,10 @@ class PianoRollGridComponent : public juce::Component,
     void updateSelectedNoteLengths(NoteComponent* draggedNote, double lengthDelta) override;
     void updateSelectedNoteLeftResize(NoteComponent* draggedNote, double lengthDelta) override;
 
+    // Pencil tool mode (always draws notes without needing Shift)
+    void setPencilMode(bool enabled);
+    bool getPencilMode() const { return pencilMode_; }
+
     // Refresh note components from clip data
     void refreshNotes();
 
@@ -299,6 +303,7 @@ class PianoRollGridComponent : public juce::Component,
 
     // Shift-drag note creation state
     bool isDrawingNote_ = false;
+    bool pencilMode_ = false;
     ClipId drawingNoteClipId_ = INVALID_CLIP_ID;
     double drawingNoteStartBeat_ = 0.0;  // clip-relative
     double drawingNoteEndBeat_ = 0.0;    // clip-relative

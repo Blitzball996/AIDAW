@@ -72,6 +72,23 @@ void TracktionEngineWrapper::initializePluginFormats() {
             });
     }
 
+    // First-launch auto-scan: if no scan has ever been performed, trigger a
+    // full scan of standard VST3/CLAP directories so the user has plugins
+    // available immediately without manual intervention.
+    if (Config::getInstance().getLastScanTimestamp() == 0) {
+        juce::Logger::writeToLog("[Init] First launch detected — triggering auto plugin scan");
+        auto splashStatus = onPluginScanStatus;
+        if (splashStatus)
+            splashStatus("Scanning plugins (first launch)...");
+        triggerPluginRescan(
+            [splashStatus](float progress, const juce::String& currentPlugin) {
+                if (splashStatus) {
+                    splashStatus("Scanning: " +
+                                 juce::File(currentPlugin).getFileNameWithoutExtension());
+                }
+            });
+    }
+
     // Log registered plugin formats
     auto& formatManager = pluginManager.pluginFormatManager;
     DBG("Plugin formats registered by Tracktion Engine: " << formatManager.getNumFormats());

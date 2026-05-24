@@ -61,6 +61,7 @@ class PianoRollKeyboard : public juce::Component {
     // Note preview state
     std::array<bool, 128> pressedNotes_{};
     int currentPlayingNote_ = -1;
+    int lastPreviewNote_ = -1;
     bool isPlayingNote_ = false;
 
     bool isBlackKey(int noteNumber) const;

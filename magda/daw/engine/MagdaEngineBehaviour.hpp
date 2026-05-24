@@ -10,6 +10,7 @@
 #include "../audio/plugins/MidiChordEnginePlugin.hpp"
 #include "../audio/plugins/MidiReceivePlugin.hpp"
 #include "../audio/plugins/SidechainMonitorPlugin.hpp"
+#include "../audio/plugins/SoundFontPlugin.hpp"
 #include "../audio/plugins/StepSequencerPlugin.hpp"
 #include "../audio/plugins/compiled/CompiledPluginRegistry.hpp"
 #include "../audio/session/SessionMonitorPlugin.hpp"
@@ -93,8 +94,16 @@ class MagdaEngineBehaviour : public tracktion::EngineBehaviour {
             return new AudioSidechainMonitorPlugin(info);
         }
         if (type == daw::audio::FaustPlugin::xmlTypeName) {
-            // FaustPlugin excluded from build — skip creation
-            return nullptr;
+            return new daw::audio::FaustPlugin(info);
+        }
+        if (type == daw::audio::SoundFontPlugin::xmlTypeName || type.startsWith("soundfont")) {
+            auto* plugin = new daw::audio::SoundFontPlugin(info);
+            // Parse program number from "soundfont:N" format
+            if (type.contains(":")) {
+                int program = type.fromLastOccurrenceOf(":", false, false).getIntValue();
+                plugin->programValue = program;
+            }
+            return plugin;
         }
         // Compiled-Faust plugins go through the registry; one factory per
         // device lives in its own .cpp (see CompiledPluginRegistry.hpp).

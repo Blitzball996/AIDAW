@@ -126,6 +126,7 @@ class PianoRollContent : public MidiEditorContent, public magda::SelectionManage
     std::unique_ptr<magda::SvgButton> chordToggle_;
     std::unique_ptr<magda::SvgButton> chordDetectBtn_;
     std::unique_ptr<magda::SvgButton> velocityToggle_;
+    std::unique_ptr<magda::SvgButton> pencilToggle_;
 
     magda::MidiBridge* monitoredMidiBridge_ = nullptr;
     std::function<void(magda::TrackId, const magda::MidiNoteEvent&)> previousMidiNoteCallback_;

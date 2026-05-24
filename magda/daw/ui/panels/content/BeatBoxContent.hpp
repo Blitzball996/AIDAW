@@ -29,9 +29,9 @@ class BeatBoxContent : public PanelContent {
     BeatBoxContent();
     ~BeatBoxContent() override;
 
-    PanelContentType getContentType() const override { return PanelContentType::Empty; }
+    PanelContentType getContentType() const override { return PanelContentType::BeatBox; }
     PanelContentInfo getContentInfo() const override {
-        return {PanelContentType::Empty, "Beat Box", "Drum pattern sequencer", "DrumGrid"};
+        return {PanelContentType::BeatBox, "Beat Box", "Drum pattern sequencer", "DrumGrid"};
     }
 
     void paint(juce::Graphics& g) override;
