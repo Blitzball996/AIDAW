@@ -32,7 +32,7 @@ int QwertyMidiKeyboard::keyToNote(int keyCode) const {
     int octaveOffset = 0;
 
     switch (keyCode) {
-        // Lower row: white keys (C..B)
+        // Lower row: white keys C D E F G A B C D E (two octaves)
         case 'A':
             semitone = 0;
             break;  // C
@@ -54,7 +54,20 @@ int QwertyMidiKeyboard::keyToNote(int keyCode) const {
         case 'J':
             semitone = 11;
             break;  // B
-        // Lower row: black keys
+        case 'K':
+            semitone = 0;
+            octaveOffset = 1;
+            break;  // C+1
+        case 'L':
+            semitone = 2;
+            octaveOffset = 1;
+            break;  // D+1
+        case ';':
+            semitone = 4;
+            octaveOffset = 1;
+            break;  // E+1
+
+        // Upper row: black keys
         case 'W':
             semitone = 1;
             break;  // C#
@@ -70,25 +83,14 @@ int QwertyMidiKeyboard::keyToNote(int keyCode) const {
         case 'U':
             semitone = 10;
             break;  // A#
-
-        // Upper row: white keys (one octave up)
-        case 'K':
-            semitone = 0;
-            octaveOffset = 1;
-            break;  // C
-        case 'L':
-            semitone = 2;
-            octaveOffset = 1;
-            break;  // D
-        // Upper row: black keys
         case 'O':
             semitone = 1;
             octaveOffset = 1;
-            break;  // C#
+            break;  // C#+1
         case 'P':
             semitone = 3;
             octaveOffset = 1;
-            break;  // D#
+            break;  // D#+1
 
         default:
             return -1;

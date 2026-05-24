@@ -47,6 +47,7 @@ class VirtualKeyboardContent : public PanelContent {
     juce::Slider velocitySlider_;
 
     juce::TextButton recordBtn_{"Rec"};
+    juce::Label helpLabel_;
 
     static constexpr int TOOLBAR_HEIGHT = 28;
 

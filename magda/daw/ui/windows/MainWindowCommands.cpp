@@ -227,7 +227,7 @@ void MainWindow::MainComponent::getCommandInfo(juce::CommandID commandID,
             break;
         case showVirtualKeyboard:
             result.setInfo("Virtual Keyboard", "Toggle virtual MIDI keyboard", "View", 0);
-            result.addDefaultKeypress('k', 0);
+            result.addDefaultKeypress('k', juce::ModifierKeys::ctrlModifier);
             break;
 
         // Help

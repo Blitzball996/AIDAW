@@ -27,6 +27,7 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         octaveValueLabel_.setText(juce::String(keyboard_.getBaseOctave()),
                                   juce::dontSendNotification);
     };
+    octaveDownBtn_.setTooltip("Z key");
     addAndMakeVisible(octaveDownBtn_);
 
     octaveUpBtn_.onClick = [this]() {
@@ -34,6 +35,7 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         octaveValueLabel_.setText(juce::String(keyboard_.getBaseOctave()),
                                   juce::dontSendNotification);
     };
+    octaveUpBtn_.setTooltip("X key");
     addAndMakeVisible(octaveUpBtn_);
 
     // Velocity slider
@@ -66,6 +68,14 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         keyboard_.setRecording(rec, pos);
     };
     addAndMakeVisible(recordBtn_);
+
+    // Help label with key mapping hints
+    helpLabel_.setText("A-J: C-B | K-;: C-E+1 | Z/X: Oct-/+ | Black: W E T Y U O P",
+                       juce::dontSendNotification);
+    helpLabel_.setFont(FontManager::getInstance().getUIFont(9.0f));
+    helpLabel_.setColour(juce::Label::textColourId,
+                         DarkTheme::getSecondaryTextColour().withAlpha(0.6f));
+    addAndMakeVisible(helpLabel_);
 }
 
 void VirtualKeyboardContent::paint(juce::Graphics& g) {
@@ -90,6 +100,9 @@ void VirtualKeyboardContent::resized() {
 
     toolbar.removeFromLeft(12);
     recordBtn_.setBounds(toolbar.removeFromLeft(36).reduced(1));
+
+    toolbar.removeFromLeft(8);
+    helpLabel_.setBounds(toolbar);
 
     // Keyboard fills the rest
     keyboard_.setBounds(bounds);
