@@ -200,6 +200,36 @@ bool VirtualKeyboard::keyPressed(const juce::KeyPress& key, juce::Component*) {
         return true;
     }
 
+    // Velocity control: C = decrease, V = increase
+    if (keyChar == 'C') {
+        setVelocity(juce::jmax(1, velocity_ - 14));
+        if (onVelocityChanged) onVelocityChanged(velocity_);
+        return true;
+    }
+    if (keyChar == 'V') {
+        setVelocity(juce::jmin(127, velocity_ + 14));
+        if (onVelocityChanged) onVelocityChanged(velocity_);
+        return true;
+    }
+
+    // Pitch bend: 1 = down, 2 = up
+    if (keyChar == '1') {
+        if (onPitchBend) onPitchBend(-8192);
+        return true;
+    }
+    if (keyChar == '2') {
+        if (onPitchBend) onPitchBend(8191);
+        return true;
+    }
+
+    // Sustain pedal: Tab
+    if (key.getKeyCode() == juce::KeyPress::tabKey) {
+        sustainOn_ = !sustainOn_;
+        if (onSustain) onSustain(sustainOn_);
+        repaint();
+        return true;
+    }
+
     // Check if already held
     if (heldComputerKeys_.count(keyChar) > 0) return true;
 
@@ -231,6 +261,11 @@ bool VirtualKeyboard::keyStateChanged(bool /*isKeyDown*/, juce::Component*) {
         if (note >= 0) {
             triggerNoteOff(note);
         }
+    }
+
+    // Pitch bend release: when 1 or 2 is released, return to center
+    if (!juce::KeyPress::isKeyCurrentlyDown('1') && !juce::KeyPress::isKeyCurrentlyDown('2')) {
+        if (onPitchBend) onPitchBend(0);
     }
 
     return !toRelease.empty();

@@ -76,15 +76,19 @@ class VirtualKeyboard : public juce::Component, public juce::KeyListener {
     // Velocity
     void setVelocity(int velocity);
     int getVelocity() const noexcept { return velocity_; }
+    bool isSustainOn() const noexcept { return sustainOn_; }
 
     // Callbacks
     std::function<void(int noteNumber, int velocity)> onNoteOn;
     std::function<void(int noteNumber)> onNoteOff;
-    std::function<double()> getTransportPosition;  // Returns current position in beats
+    std::function<void(int pitchBendValue)> onPitchBend;  // -8192 to 8191, 0=center
+    std::function<void(bool on)> onSustain;               // sustain pedal toggle
+    std::function<void(int velocity)> onVelocityChanged;  // velocity changed via C/V
+    std::function<double()> getTransportPosition;
 
   private:
-    static constexpr int NUM_WHITE_KEYS = 21;  // 3 octaves of white keys
-    static constexpr int NUM_TOTAL_KEYS = 36;  // 3 octaves total
+    static constexpr int NUM_WHITE_KEYS = 21;
+    static constexpr int NUM_TOTAL_KEYS = 36;
 
     struct KeyInfo {
         int noteOffset;       // Semitone offset from C
@@ -96,8 +100,9 @@ class VirtualKeyboard : public juce::Component, public juce::KeyListener {
     // Piano key layout for one octave (C to B)
     static const std::array<KeyInfo, 18> keyMapping_;
 
-    int baseOctave_ = 4;  // Middle C octave
+    int baseOctave_ = 4;
     int velocity_ = 100;
+    bool sustainOn_ = false;
 
     // Currently pressed keys (by MIDI note number)
     std::set<int> pressedNotes_;

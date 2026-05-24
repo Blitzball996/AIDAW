@@ -106,6 +106,15 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         if (midiBridge)
             midiBridge->broadcastSynthesizedNote(vmd->getDeviceID(), noteNumber, 0, false);
     };
+    keyboard_.onPitchBend = [](int /*value*/) {
+        // TODO: route pitch bend to active instrument track
+    };
+    keyboard_.onSustain = [](bool /*on*/) {
+        // TODO: route sustain CC64 to active instrument track
+    };
+    keyboard_.onVelocityChanged = [this](int vel) {
+        velocitySlider_.setValue(vel, juce::dontSendNotification);
+    };
 }
 
 void VirtualKeyboardContent::paint(juce::Graphics& g) {
