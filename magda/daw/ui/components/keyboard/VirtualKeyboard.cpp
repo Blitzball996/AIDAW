@@ -81,105 +81,75 @@ void VirtualKeyboard::paint(juce::Graphics& g) {
     const int blackKeyWidth = whiteKeyWidth * 2 / 3;
     const int blackKeyHeight = whiteKeyHeight * 3 / 5;
 
-    // Draw white keys first
-    int whiteIdx = 0;
-    for (int octave = 0; octave < 3; ++octave) {
-        int octaveBase = (baseOctave_ + octave) * 12;
-        for (int note = 0; note < 12; ++note) {
-            if (isBlackKey(note)) continue;
+    // Only draw the mapped range: 18 semitones (C to F+1)
+    // White keys in this range: C D E F G A B C D E F = 11
+    static const int whiteNotes[] = {0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17};
+    static const int blackNotes[] = {1, 3, 6, 8, 10, 13, 15};
 
-            int midiNote = octaveBase + note;
-            auto keyRect = juce::Rectangle<int>(whiteIdx * whiteKeyWidth, 0,
-                                                whiteKeyWidth - 1, whiteKeyHeight);
+    // Draw white keys
+    for (int i = 0; i < NUM_WHITE_KEYS; ++i) {
+        int semitone = whiteNotes[i];
+        int midiNote = baseOctave_ * 12 + semitone;
+        auto keyRect = juce::Rectangle<int>(i * whiteKeyWidth, 0,
+                                            whiteKeyWidth - 1, whiteKeyHeight);
 
-            bool isPressed = pressedNotes_.count(midiNote) > 0;
+        bool isPressed = pressedNotes_.count(midiNote) > 0;
+        g.setColour(isPressed ? DarkTheme::getColour(DarkTheme::ACCENT_BLUE) : juce::Colours::white);
+        g.fillRect(keyRect);
 
-            if (isPressed) {
-                g.setColour(DarkTheme::getColour(DarkTheme::ACCENT_BLUE).withAlpha(0.6f));
-            } else {
-                g.setColour(juce::Colours::white);
-            }
-            g.fillRect(keyRect);
+        g.setColour(juce::Colour(0xFF333333));
+        g.drawRect(keyRect);
 
-            g.setColour(juce::Colour(0xFF333333));
-            g.drawRect(keyRect);
-
-            // Draw key label at bottom
-            if (note == 0) {
+        // Draw computer key label at bottom
+        for (auto& km : keyMapping_) {
+            if (km.noteOffset == semitone && !km.isBlack) {
                 g.setColour(juce::Colour(0xFF666666));
-                g.setFont(FontManager::getInstance().getUIFont(10.0f));
-                g.drawText("C" + juce::String(baseOctave_ + octave),
-                           keyRect.removeFromBottom(16), juce::Justification::centred);
+                g.setFont(FontManager::getInstance().getUIFont(9.0f));
+                auto labelArea = juce::Rectangle<int>(
+                    i * whiteKeyWidth, whiteKeyHeight - 20, whiteKeyWidth - 1, 14);
+                g.drawText(juce::String::charToString(km.computerKey),
+                           labelArea, juce::Justification::centred);
+                break;
             }
-
-            // Draw computer key label
-            for (auto& km : keyMapping_) {
-                if (km.noteOffset == note && !km.isBlack && km.computerKey != 0) {
-                    if (octave == 0 || (octave == 0 && note <= 12)) {
-                        // Only show labels for first octave mapping
-                        if (octave == 0) {
-                            g.setColour(juce::Colour(0xFF999999));
-                            g.setFont(FontManager::getInstance().getUIFont(9.0f));
-                            auto labelArea = juce::Rectangle<int>(
-                                whiteIdx * whiteKeyWidth, whiteKeyHeight - 30,
-                                whiteKeyWidth - 1, 14);
-                            g.drawText(juce::String::charToString(km.computerKey),
-                                       labelArea, juce::Justification::centred);
-                        }
-                    }
-                    break;
-                }
-            }
-
-            whiteIdx++;
         }
     }
 
     // Draw black keys on top
-    whiteIdx = 0;
-    for (int octave = 0; octave < 3; ++octave) {
-        int octaveBase = (baseOctave_ + octave) * 12;
-        int localWhite = 0;
-        for (int note = 0; note < 12; ++note) {
-            if (isBlackKey(note)) {
-                int midiNote = octaveBase + note;
-                // Black key position: offset from the left edge of the preceding white key
-                int xPos = (whiteIdx + localWhite) * whiteKeyWidth - blackKeyWidth / 2;
-                auto keyRect = juce::Rectangle<int>(xPos, 0, blackKeyWidth, blackKeyHeight);
+    // Black key positions relative to white key index
+    static const int blackWhitePos[] = {1, 2, 4, 5, 6, 8, 9};  // after which white key
+    for (int i = 0; i < 7; ++i) {
+        int semitone = blackNotes[i];
+        int midiNote = baseOctave_ * 12 + semitone;
+        int xPos = blackWhitePos[i] * whiteKeyWidth - blackKeyWidth / 2;
+        auto keyRect = juce::Rectangle<int>(xPos, 0, blackKeyWidth, blackKeyHeight);
 
-                bool isPressed = pressedNotes_.count(midiNote) > 0;
+        bool isPressed = pressedNotes_.count(midiNote) > 0;
+        g.setColour(isPressed ? DarkTheme::getColour(DarkTheme::ACCENT_BLUE) : juce::Colour(0xFF222222));
+        g.fillRect(keyRect);
 
-                if (isPressed) {
-                    g.setColour(DarkTheme::getColour(DarkTheme::ACCENT_BLUE));
-                } else {
-                    g.setColour(juce::Colour(0xFF222222));
-                }
-                g.fillRect(keyRect);
+        g.setColour(juce::Colour(0xFF111111));
+        g.drawRect(keyRect);
 
-                g.setColour(juce::Colour(0xFF111111));
-                g.drawRect(keyRect);
-            } else {
-                localWhite++;
+        // Draw computer key label
+        for (auto& km : keyMapping_) {
+            if (km.noteOffset == semitone && km.isBlack) {
+                g.setColour(juce::Colour(0xFFAAAAAA));
+                g.setFont(FontManager::getInstance().getUIFont(8.0f));
+                auto labelArea = juce::Rectangle<int>(xPos, blackKeyHeight - 16, blackKeyWidth, 12);
+                g.drawText(juce::String::charToString(km.computerKey),
+                           labelArea, juce::Justification::centred);
+                break;
             }
         }
-        whiteIdx += 7;  // 7 white keys per octave
     }
 
-    // Draw octave indicator
-    g.setColour(DarkTheme::getColour(DarkTheme::TEXT_SECONDARY));
-    g.setFont(FontManager::getInstance().getUIFont(11.0f));
-    g.drawText("Oct: " + juce::String(baseOctave_) + "  [Z/X]",
-               bounds.removeFromBottom(18).removeFromRight(120),
-               juce::Justification::centredRight);
-
-    // Recording indicator
-    if (recorder_.isRecording()) {
-        g.setColour(juce::Colours::red);
-        g.fillEllipse(bounds.getX() + 4.0f, bounds.getBottom() - 14.0f, 8.0f, 8.0f);
-        g.setColour(DarkTheme::getColour(DarkTheme::TEXT_PRIMARY));
-        g.drawText("REC", bounds.getX() + 16, bounds.getBottom() - 16, 30, 14,
-                   juce::Justification::centredLeft);
-    }
+    // Draw status indicators at top
+    g.setFont(FontManager::getInstance().getUIFont(9.0f));
+    g.setColour(DarkTheme::getSecondaryTextColour());
+    juce::String status = "Oct:" + juce::String(baseOctave_) +
+                          " Vel:" + juce::String(velocity_);
+    if (sustainOn_) status += " [SUS]";
+    g.drawText(status, bounds.removeFromTop(14).reduced(4, 0), juce::Justification::centredLeft);
 }
 
 void VirtualKeyboard::resized() {

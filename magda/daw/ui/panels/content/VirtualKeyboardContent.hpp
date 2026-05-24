@@ -7,12 +7,8 @@
 
 namespace magda::daw::ui {
 
-/**
- * @brief PanelContent wrapper for VirtualKeyboard component
- *
- * Wraps the VirtualKeyboard (computer-key → MIDI) as a dockable panel.
- * Includes octave selector, velocity slider, and record toggle.
- */
+class VirtualKeyboardWindow;
+
 class VirtualKeyboardContent : public PanelContent {
   public:
     VirtualKeyboardContent();
@@ -35,6 +31,8 @@ class VirtualKeyboardContent : public PanelContent {
 
     magda::VirtualKeyboard& getKeyboard() { return keyboard_; }
 
+    void popOutToWindow();
+
   private:
     magda::VirtualKeyboard keyboard_;
 
@@ -47,11 +45,23 @@ class VirtualKeyboardContent : public PanelContent {
     juce::Slider velocitySlider_;
 
     juce::TextButton recordBtn_{"Rec"};
+    juce::TextButton popOutBtn_{"^"};
     juce::Label helpLabel_;
 
     static constexpr int TOOLBAR_HEIGHT = 28;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VirtualKeyboardContent)
+};
+
+class VirtualKeyboardWindow : public juce::DocumentWindow {
+  public:
+    VirtualKeyboardWindow();
+    void closeButtonPressed() override { setVisible(false); }
+
+    magda::VirtualKeyboard& getKeyboard() { return content_.getKeyboard(); }
+
+  private:
+    VirtualKeyboardContent content_;
 };
 
 }  // namespace magda::daw::ui

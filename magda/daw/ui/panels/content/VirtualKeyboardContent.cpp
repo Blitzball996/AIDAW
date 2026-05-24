@@ -73,6 +73,11 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
     };
     addAndMakeVisible(recordBtn_);
 
+    // Pop-out button
+    popOutBtn_.setTooltip("Open as floating window");
+    popOutBtn_.onClick = [this]() { popOutToWindow(); };
+    addAndMakeVisible(popOutBtn_);
+
     // Help label with key mapping hints
     helpLabel_.setText("A-; ': C-F (2 oct) | Black: W E T Y U O P | Z/X: Oct-/+",
                        juce::dontSendNotification);
@@ -140,6 +145,9 @@ void VirtualKeyboardContent::resized() {
     toolbar.removeFromLeft(12);
     recordBtn_.setBounds(toolbar.removeFromLeft(36).reduced(1));
 
+    toolbar.removeFromLeft(4);
+    popOutBtn_.setBounds(toolbar.removeFromLeft(22).reduced(1));
+
     toolbar.removeFromLeft(8);
     helpLabel_.setBounds(toolbar);
 
@@ -157,6 +165,29 @@ void VirtualKeyboardContent::onActivated() {
 void VirtualKeyboardContent::onDeactivated() {
     if (auto* topLevel = getTopLevelComponent())
         topLevel->removeKeyListener(&keyboard_);
+}
+
+// Static instance of floating window
+static std::unique_ptr<VirtualKeyboardWindow> s_floatingWindow;
+
+void VirtualKeyboardContent::popOutToWindow() {
+    if (!s_floatingWindow)
+        s_floatingWindow = std::make_unique<VirtualKeyboardWindow>();
+    s_floatingWindow->setVisible(true);
+    s_floatingWindow->toFront(true);
+}
+
+VirtualKeyboardWindow::VirtualKeyboardWindow()
+    : juce::DocumentWindow("Virtual Keyboard",
+                           DarkTheme::getColour(DarkTheme::PANEL_BACKGROUND),
+                           juce::DocumentWindow::closeButton) {
+    setContentNonOwned(&content_, false);
+    setSize(700, 160);
+    setResizable(true, false);
+    setUsingNativeTitleBar(true);
+    setAlwaysOnTop(true);
+    centreWithSize(700, 160);
+    content_.onActivated();
 }
 
 }  // namespace magda::daw::ui

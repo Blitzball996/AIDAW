@@ -60,7 +60,7 @@ struct TrackInfo {
     bool muted = false;
     bool soloed = false;
     bool recordArmed = false;
-    InputMonitorMode inputMonitor = InputMonitorMode::Off;
+    InputMonitorMode inputMonitor = InputMonitorMode::Auto;
     bool frozen = false;  // Track is frozen (rendered to audio, plugins disabled)
     TrackPlaybackMode playbackMode = TrackPlaybackMode::Arrangement;
 

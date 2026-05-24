@@ -87,8 +87,8 @@ class VirtualKeyboard : public juce::Component, public juce::KeyListener {
     std::function<double()> getTransportPosition;
 
   private:
-    static constexpr int NUM_WHITE_KEYS = 21;
-    static constexpr int NUM_TOTAL_KEYS = 36;
+    static constexpr int NUM_WHITE_KEYS = 11;  // Only show keys we can play (C to F+1)
+    static constexpr int NUM_TOTAL_KEYS = 18;  // Total mapped keys including black
 
     struct KeyInfo {
         int noteOffset;       // Semitone offset from C
