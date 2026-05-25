@@ -74,82 +74,108 @@ void VirtualKeyboard::paint(juce::Graphics& g) {
     auto bounds = getLocalBounds();
     g.fillAll(DarkTheme::getColour(DarkTheme::PANEL_BACKGROUND));
 
-    if (bounds.getWidth() < 10 || bounds.getHeight() < 10) return;
+    if (bounds.getWidth() < 10 || bounds.getHeight() < 40) return;
 
-    const int whiteKeyWidth = bounds.getWidth() / NUM_WHITE_KEYS;
-    const int whiteKeyHeight = bounds.getHeight();
+    // Layout: top bar (pitch/mod) | keyboard | bottom bar (oct/vel/sustain)
+    constexpr int topBarH = 22;
+    constexpr int bottomBarH = 22;
+
+    auto topBar = bounds.removeFromTop(topBarH);
+    auto bottomBar = bounds.removeFromBottom(bottomBarH);
+    auto keyArea = bounds;
+
+    // === TOP BAR: Pitch Bend (1/2) + Modulation (3-8) ===
+    g.setFont(FontManager::getInstance().getUIFont(9.0f));
+    auto pitchArea = topBar.removeFromLeft(120);
+    g.setColour(DarkTheme::getSecondaryTextColour());
+    g.drawText("Pitch: [1\xe2\x96\xbc] [2\xe2\x96\xb2]", pitchArea, juce::Justification::centredLeft);
+
+    topBar.removeFromLeft(10);
+    auto modArea = topBar.removeFromLeft(200);
+    g.drawText("Mod: [3:off] [4] [5] [6] [7] [8]", modArea, juce::Justification::centredLeft);
+
+    if (sustainOn_) {
+        g.setColour(DarkTheme::getColour(DarkTheme::ACCENT_GREEN));
+        g.drawText("SUSTAIN", topBar, juce::Justification::centredRight);
+    }
+
+    // === KEYBOARD AREA ===
+    const int whiteKeyWidth = keyArea.getWidth() / NUM_WHITE_KEYS;
+    const int whiteKeyHeight = keyArea.getHeight();
     const int blackKeyWidth = whiteKeyWidth * 2 / 3;
     const int blackKeyHeight = whiteKeyHeight * 3 / 5;
+    const int keyY = keyArea.getY();
 
-    // Only draw the mapped range: 18 semitones (C to F+1)
-    // White keys in this range: C D E F G A B C D E F = 11
     static const int whiteNotes[] = {0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17};
     static const int blackNotes[] = {1, 3, 6, 8, 10, 13, 15};
 
-    // Draw white keys
+    // White keys
     for (int i = 0; i < NUM_WHITE_KEYS; ++i) {
         int semitone = whiteNotes[i];
         int midiNote = baseOctave_ * 12 + semitone;
-        auto keyRect = juce::Rectangle<int>(i * whiteKeyWidth, 0,
+        auto keyRect = juce::Rectangle<int>(i * whiteKeyWidth, keyY,
                                             whiteKeyWidth - 1, whiteKeyHeight);
 
         bool isPressed = pressedNotes_.count(midiNote) > 0;
         g.setColour(isPressed ? DarkTheme::getColour(DarkTheme::ACCENT_BLUE) : juce::Colours::white);
         g.fillRect(keyRect);
-
         g.setColour(juce::Colour(0xFF333333));
         g.drawRect(keyRect);
 
-        // Draw computer key label at bottom
+        // Key label at bottom of white key
         for (auto& km : keyMapping_) {
             if (km.noteOffset == semitone && !km.isBlack) {
-                g.setColour(juce::Colour(0xFF666666));
-                g.setFont(FontManager::getInstance().getUIFont(9.0f));
-                auto labelArea = juce::Rectangle<int>(
-                    i * whiteKeyWidth, whiteKeyHeight - 20, whiteKeyWidth - 1, 14);
+                g.setColour(isPressed ? juce::Colours::white : juce::Colour(0xFF555555));
+                g.setFont(FontManager::getInstance().getUIFont(10.0f));
                 g.drawText(juce::String::charToString(km.computerKey),
-                           labelArea, juce::Justification::centred);
+                           keyRect.withTop(keyRect.getBottom() - 18),
+                           juce::Justification::centred);
                 break;
             }
         }
     }
 
-    // Draw black keys on top
-    // Black key positions relative to white key index
-    static const int blackWhitePos[] = {1, 2, 4, 5, 6, 8, 9};  // after which white key
+    // Black keys
+    static const int blackWhitePos[] = {1, 2, 4, 5, 6, 8, 9};
     for (int i = 0; i < 7; ++i) {
         int semitone = blackNotes[i];
         int midiNote = baseOctave_ * 12 + semitone;
         int xPos = blackWhitePos[i] * whiteKeyWidth - blackKeyWidth / 2;
-        auto keyRect = juce::Rectangle<int>(xPos, 0, blackKeyWidth, blackKeyHeight);
+        auto keyRect = juce::Rectangle<int>(xPos, keyY, blackKeyWidth, blackKeyHeight);
 
         bool isPressed = pressedNotes_.count(midiNote) > 0;
-        g.setColour(isPressed ? DarkTheme::getColour(DarkTheme::ACCENT_BLUE) : juce::Colour(0xFF222222));
+        g.setColour(isPressed ? DarkTheme::getColour(DarkTheme::ACCENT_BLUE) : juce::Colour(0xFF1A1A1A));
         g.fillRect(keyRect);
-
-        g.setColour(juce::Colour(0xFF111111));
+        g.setColour(juce::Colour(0xFF000000));
         g.drawRect(keyRect);
 
-        // Draw computer key label
         for (auto& km : keyMapping_) {
             if (km.noteOffset == semitone && km.isBlack) {
-                g.setColour(juce::Colour(0xFFAAAAAA));
+                g.setColour(isPressed ? juce::Colours::white : juce::Colour(0xFFBBBBBB));
                 g.setFont(FontManager::getInstance().getUIFont(8.0f));
-                auto labelArea = juce::Rectangle<int>(xPos, blackKeyHeight - 16, blackKeyWidth, 12);
                 g.drawText(juce::String::charToString(km.computerKey),
-                           labelArea, juce::Justification::centred);
+                           keyRect.withTop(keyRect.getBottom() - 14),
+                           juce::Justification::centred);
                 break;
             }
         }
     }
 
-    // Draw status indicators at top
-    g.setFont(FontManager::getInstance().getUIFont(9.0f));
+    // === BOTTOM BAR: Octave + Velocity + Sustain (like Logic) ===
+    g.setFont(FontManager::getInstance().getUIFont(10.0f));
+
+    auto octArea = bottomBar.removeFromLeft(130);
     g.setColour(DarkTheme::getSecondaryTextColour());
-    juce::String status = "Oct:" + juce::String(baseOctave_) +
-                          " Vel:" + juce::String(velocity_);
-    if (sustainOn_) status += " [SUS]";
-    g.drawText(status, bounds.removeFromTop(14).reduced(4, 0), juce::Justification::centredLeft);
+    g.drawText("[Z\xe2\x97\x80 Oct:" + juce::String(baseOctave_) + " \xe2\x96\xb6X]",
+               octArea, juce::Justification::centredLeft);
+
+    bottomBar.removeFromLeft(10);
+    auto velArea = bottomBar.removeFromLeft(130);
+    g.drawText("[C\xe2\x97\x80 Vel:" + juce::String(velocity_) + " \xe2\x96\xb6V]",
+               velArea, juce::Justification::centredLeft);
+
+    bottomBar.removeFromLeft(10);
+    g.drawText("[Tab: Sustain]", bottomBar.removeFromLeft(100), juce::Justification::centredLeft);
 }
 
 void VirtualKeyboard::resized() {
