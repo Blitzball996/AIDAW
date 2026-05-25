@@ -341,8 +341,10 @@ void VirtualKeyboard::mouseDown(const juce::MouseEvent& e) {
 
     // Check if click is in bottom bar (control buttons)
     if (e.getPosition().getY() >= bottomBar.getY()) {
+        // Bottom bar is drawn after left panel, so offset x by leftPanelW
+        int x = e.getPosition().getX() - leftPanelW;
+        if (x < 0) return;
         // Match the layout from paint(): Z(24) Oct(50) X(24) gap(12) C(24) Vel(50) V(24) gap(12) Sus(70)
-        int x = e.getPosition().getX();
         int pos = 0;
         // Z button
         if (x >= pos && x < pos + 24) { setBaseOctave(juce::jmax(0, baseOctave_ - 1)); repaint(); return; }
