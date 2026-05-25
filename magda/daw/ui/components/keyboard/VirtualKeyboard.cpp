@@ -333,17 +333,49 @@ bool VirtualKeyboard::keyStateChanged(bool /*isKeyDown*/, juce::Component*) {
 
 void VirtualKeyboard::mouseDown(const juce::MouseEvent& e) {
     auto bounds = getLocalBounds();
+    constexpr int leftPanelW = 50;
     constexpr int bottomBarH = 24;
     auto bottomBar = bounds.removeFromBottom(bottomBarH);
 
     // Check if click is in bottom bar (control buttons)
     if (e.getPosition().getY() >= bottomBar.getY()) {
-        int x = e.getPosition().getX() - 50;  // offset for left panel
-        if (x >= 0 && x < 24) { setBaseOctave(juce::jmax(0, baseOctave_ - 1)); return; }       // Z
-        if (x >= 74 && x < 98) { setBaseOctave(juce::jmin(8, baseOctave_ + 1)); return; }      // X
-        if (x >= 110 && x < 134) { setVelocity(juce::jmax(1, velocity_ - 14)); if (onVelocityChanged) onVelocityChanged(velocity_); return; }  // C
-        if (x >= 184 && x < 208) { setVelocity(juce::jmin(127, velocity_ + 14)); if (onVelocityChanged) onVelocityChanged(velocity_); return; } // V
-        if (x >= 220 && x < 290) { sustainOn_ = !sustainOn_; if (onSustain) onSustain(sustainOn_); repaint(); return; }  // Tab:Sus
+        // Match the layout from paint(): Z(24) Oct(50) X(24) gap(12) C(24) Vel(50) V(24) gap(12) Sus(70)
+        int x = e.getPosition().getX();
+        int pos = 0;
+        // Z button
+        if (x >= pos && x < pos + 24) { setBaseOctave(juce::jmax(0, baseOctave_ - 1)); repaint(); return; }
+        pos += 24 + 50;  // skip Z + Oct label
+        // X button
+        if (x >= pos && x < pos + 24) { setBaseOctave(juce::jmin(8, baseOctave_ + 1)); repaint(); return; }
+        pos += 24 + 12;  // skip X + gap
+        // C button
+        if (x >= pos && x < pos + 24) { setVelocity(juce::jmax(1, velocity_ - 14)); if (onVelocityChanged) onVelocityChanged(velocity_); repaint(); return; }
+        pos += 24 + 50;  // skip C + Vel label
+        // V button
+        if (x >= pos && x < pos + 24) { setVelocity(juce::jmin(127, velocity_ + 14)); if (onVelocityChanged) onVelocityChanged(velocity_); repaint(); return; }
+        pos += 24 + 12;  // skip V + gap
+        // Sustain button
+        if (x >= pos && x < pos + 70) { sustainOn_ = !sustainOn_; if (onSustain) onSustain(sustainOn_); repaint(); return; }
+        return;
+    }
+
+    // Check if click is in left panel (pitch bend / mod wheel)
+    if (e.getPosition().getX() < leftPanelW) {
+        if (e.getPosition().getX() < 24) {
+            // Pitch bend area — click top half = bend up, bottom half = bend down
+            int midY = bounds.getCentreY();
+            if (e.getPosition().getY() < midY) {
+                if (onPitchBend) onPitchBend(8191);
+            } else {
+                if (onPitchBend) onPitchBend(-8192);
+            }
+        } else {
+            // Mod wheel area — map Y position to 0-127
+            float ratio = 1.0f - static_cast<float>(e.getPosition().getY() - bounds.getY()) / static_cast<float>(bounds.getHeight());
+            int modVal = juce::jlimit(0, 127, static_cast<int>(ratio * 127));
+            if (onModWheel) onModWheel(modVal);
+        }
+        repaint();
         return;
     }
 
@@ -370,6 +402,8 @@ void VirtualKeyboard::mouseUp(const juce::MouseEvent&) {
         triggerNoteOff(mouseNote_);
         mouseNote_ = -1;
     }
+    // Release pitch bend on mouse up (return to center)
+    if (onPitchBend) onPitchBend(0);
 }
 
 void VirtualKeyboard::setRecording(bool shouldRecord, double transportPositionBeats) {
