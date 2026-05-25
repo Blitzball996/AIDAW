@@ -90,13 +90,19 @@ void SoundFontPlugin::applyToBuffer(const te::PluginRenderContext& rc) {
 
     if (rc.bufferForMidiMessages != nullptr) {
         for (auto& m : *rc.bufferForMidiMessages) {
+            int ch = juce::jmax(0, m.getChannel() - 1);
             if (m.isNoteOn()) {
-                tsf_note_on(soundFont_, program, m.getNoteNumber(),
-                            m.getFloatVelocity());
+                tsf_channel_note_on(soundFont_, ch, m.getNoteNumber(),
+                                    m.getFloatVelocity());
             } else if (m.isNoteOff()) {
-                tsf_note_off(soundFont_, program, m.getNoteNumber());
+                tsf_channel_note_off(soundFont_, ch, m.getNoteNumber());
+            } else if (m.isPitchWheel()) {
+                tsf_channel_set_pitchwheel(soundFont_, ch, m.getPitchWheelValue());
+            } else if (m.isController()) {
+                tsf_channel_midi_control(soundFont_, ch, m.getControllerNumber(),
+                                         m.getControllerValue());
             } else if (m.isAllNotesOff() || m.isAllSoundOff()) {
-                tsf_reset(soundFont_);
+                tsf_channel_note_off_all(soundFont_, ch);
             }
         }
     }
