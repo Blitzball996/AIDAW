@@ -451,39 +451,41 @@ int VirtualKeyboard::getNoteAtPosition(juce::Point<int> pos) const {
     auto bounds = getLocalBounds();
     if (!bounds.contains(pos)) return -1;
 
-    const int whiteKeyWidth = bounds.getWidth() / NUM_WHITE_KEYS;
+    constexpr int leftPanelW = 50;
+    constexpr int bottomBarH = 24;
+
+    // Exclude left panel and bottom bar
+    auto keyArea = bounds;
+    keyArea.removeFromLeft(leftPanelW);
+    keyArea.removeFromBottom(bottomBarH);
+
+    if (!keyArea.contains(pos)) return -1;
+
+    int localX = pos.getX() - keyArea.getX();
+    int localY = pos.getY() - keyArea.getY();
+
+    const int whiteKeyWidth = keyArea.getWidth() / NUM_WHITE_KEYS;
     const int blackKeyWidth = whiteKeyWidth * 2 / 3;
-    const int blackKeyHeight = bounds.getHeight() * 3 / 5;
+    const int blackKeyHeight = keyArea.getHeight() * 3 / 5;
+
+    static const int whiteNotes[] = {0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17};
+    static const int blackNotes[] = {1, 3, 6, 8, 10, 13, 15};
+    static const int blackWhitePos[] = {1, 2, 4, 5, 6, 8, 9};
 
     // Check black keys first (they're on top)
-    if (pos.getY() < blackKeyHeight) {
-        int whiteIdx = 0;
-        for (int octave = 0; octave < 3; ++octave) {
-            int localWhite = 0;
-            for (int note = 0; note < 12; ++note) {
-                if (isBlackKey(note)) {
-                    int xPos = (whiteIdx + localWhite) * whiteKeyWidth - blackKeyWidth / 2;
-                    if (pos.getX() >= xPos && pos.getX() < xPos + blackKeyWidth) {
-                        return (baseOctave_ + octave) * 12 + note;
-                    }
-                } else {
-                    localWhite++;
-                }
+    if (localY < blackKeyHeight) {
+        for (int i = 0; i < 7; ++i) {
+            int xPos = blackWhitePos[i] * whiteKeyWidth - blackKeyWidth / 2;
+            if (localX >= xPos && localX < xPos + blackKeyWidth) {
+                return baseOctave_ * 12 + blackNotes[i];
             }
-            whiteIdx += 7;
         }
     }
 
     // Check white keys
-    int whiteKeyIndex = pos.getX() / whiteKeyWidth;
-    if (whiteKeyIndex >= 0 && whiteKeyIndex < NUM_WHITE_KEYS) {
-        int octave = whiteKeyIndex / 7;
-        int whiteInOctave = whiteKeyIndex % 7;
-        // Map white key index to note: 0=C, 1=D, 2=E, 3=F, 4=G, 5=A, 6=B
-        static const int whiteToNote[] = {0, 2, 4, 5, 7, 9, 11};
-        if (whiteInOctave < 7) {
-            return (baseOctave_ + octave) * 12 + whiteToNote[whiteInOctave];
-        }
+    int whiteIdx = localX / whiteKeyWidth;
+    if (whiteIdx >= 0 && whiteIdx < NUM_WHITE_KEYS) {
+        return baseOctave_ * 12 + whiteNotes[whiteIdx];
     }
 
     return -1;
