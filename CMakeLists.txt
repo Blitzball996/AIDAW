@@ -132,6 +132,17 @@ if(MSVC)
     set_target_properties(llama PROPERTIES CXX_STANDARD 17)
 endif()
 
+# sfizz — high-quality SFZ sampler engine
+set(SFIZZ_JACK OFF CACHE BOOL "" FORCE)
+set(SFIZZ_RENDER OFF CACHE BOOL "" FORCE)
+set(SFIZZ_BENCHMARKS OFF CACHE BOOL "" FORCE)
+set(SFIZZ_TESTS OFF CACHE BOOL "" FORCE)
+set(SFIZZ_DEMOS OFF CACHE BOOL "" FORCE)
+set(SFIZZ_DEVTOOLS OFF CACHE BOOL "" FORCE)
+set(SFIZZ_SHARED OFF CACHE BOOL "" FORCE)
+set(ENABLE_LTO OFF CACHE BOOL "" FORCE)
+add_subdirectory(third_party/sfizz EXCLUDE_FROM_ALL)
+
 # Faust — runtime DSP compilation. Free tier uses the interpreter backend (no
 # LLVM, smaller binary, ~5–10× slower DSP execution); pro tier (later) flips
 # MAGDA_FAUST_BACKEND=llvm to pull in the LLVM JIT backend at full speed.

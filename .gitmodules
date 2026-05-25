@@ -7,3 +7,6 @@
 [submodule "third_party/juce"]
 	path = third_party/juce
 	url = https://github.com/juce-framework/JUCE.git
+[submodule "third_party/sfizz"]
+	path = third_party/sfizz
+	url = https://github.com/sfztools/sfizz.git

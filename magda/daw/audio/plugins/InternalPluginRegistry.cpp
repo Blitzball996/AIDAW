@@ -8,6 +8,7 @@
 #include "plugins/MagdaSamplerPlugin.hpp"
 #include "plugins/MidiChordEnginePlugin.hpp"
 #include "plugins/MidiReceivePlugin.hpp"
+#include "plugins/SfizzPlugin.hpp"
 #include "plugins/SidechainMonitorPlugin.hpp"
 #include "plugins/SoundFontPlugin.hpp"
 #include "plugins/StepSequencerPlugin.hpp"
@@ -125,6 +126,10 @@ const InternalPluginSpec kSpecs[] = {
     {InternalDeviceKind::SoundFont, SoundFontPlugin::xmlTypeName, "SoundFont Player", "Synth",
      "SF2-based multi-timbral instrument using TinySoundFont.",
      InternalPluginCreateMode::FreshValueTree, true, true, nullptr, 0, matches<SoundFontPlugin>,
+     nullptr},
+    {InternalDeviceKind::Sfizz, SfizzPlugin::xmlTypeName, "Sfizz Sampler", "Sampler",
+     "High-quality SFZ sampler with sinc interpolation. Load any SFZ instrument library.",
+     InternalPluginCreateMode::FreshValueTree, true, true, nullptr, 0, matches<SfizzPlugin>,
      nullptr},
     {InternalDeviceKind::MidiReceive, ::magda::MidiReceivePlugin::xmlTypeName, "MIDI Receive",
      "MIDI", "Internal MIDI routing endpoint used by MAGDA track and device routing.",

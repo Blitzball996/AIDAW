@@ -51,6 +51,8 @@ enum class InternalDeviceKind {
     SessionMonitor,
     // --- SoundFont -----------------------------------------------------
     SoundFont,
+    // --- Sfizz -----------------------------------------------------------
+    Sfizz,
     // --- Faust ---------------------------------------------------------
     Faust,  // interpreter-based, runs arbitrary user .dsp
 };

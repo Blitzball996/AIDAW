@@ -372,6 +372,7 @@ target_link_libraries(magda_daw
     $<$<PLATFORM_ID:Linux>:juce::pkgconfig_JUCE_CURL_LINUX_DEPS>
     PRIVATE
     faust::libfaust
+    sfizz::sfizz
 )
 
 target_compile_definitions(magda_daw
@@ -447,6 +448,7 @@ target_include_directories(magda_daw
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/third_party/faust/architecture
     ${CMAKE_SOURCE_DIR}/third_party/tsf
+    ${CMAKE_SOURCE_DIR}/third_party/sfizz/src
 )
 
 target_include_directories(magda_daw_app
