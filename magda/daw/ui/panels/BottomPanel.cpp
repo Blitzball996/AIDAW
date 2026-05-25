@@ -555,6 +555,11 @@ void BottomPanel::resized() {
         return;
     }
 
+    // Ensure header visibility matches active content's preference
+    auto* content = getActiveContent();
+    bool shouldShowHeader = content && content->wantsHeader();
+    headerBar_->setVisible(shouldShowHeader);
+
     bool hasHeader = headerBar_->isVisible();
 
     // Position header bar at the top

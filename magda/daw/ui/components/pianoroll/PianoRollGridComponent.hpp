@@ -203,6 +203,10 @@ class PianoRollGridComponent : public juce::Component,
     std::function<void(ClipId, size_t, double, bool)>
         onNoteDragging;  // clipId, index, previewBeat, isDragging
 
+    // Note audition callback (play note sound on click/create)
+    std::function<void(int noteNumber, int velocity)> onNoteAudition;
+    std::function<void(int noteNumber)> onNoteAuditionOff;
+
     // Callbacks for multi-note operations (single undo step)
     std::function<void(ClipId, std::vector<MoveMultipleMidiNotesCommand::NoteMove>)>
         onMultipleNotesMoved;

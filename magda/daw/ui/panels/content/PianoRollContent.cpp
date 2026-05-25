@@ -8,6 +8,7 @@
 #include "../../themes/DarkTheme.hpp"
 #include "../../themes/FontManager.hpp"
 #include "BinaryData.h"
+#include "audio/AudioBridge.hpp"
 #include "audio/MidiBridge.hpp"
 #include "audio/plugins/MidiChordEnginePlugin.hpp"
 #include "core/ChordAnnotationCommands.hpp"
@@ -28,6 +29,52 @@
 #include "ui/components/timeline/TimeRuler.hpp"
 
 namespace magda::daw::ui {
+
+namespace {
+void extendClipIfNeeded(magda::ClipId clipId, double noteEnd) {
+    auto* clip = magda::ClipManager::getInstance().getClip(clipId);
+    if (!clip)
+        return;
+    auto range = magda::ClipOperations::getMidiVisibleRange(*clip);
+    if (noteEnd <= range.endBeat())
+        return;
+
+    double tempo = 120.0;
+    int numerator = 4;
+    auto* tc = magda::TimelineController::getCurrent();
+    if (tc) {
+        tempo = tc->getState().tempo.bpm;
+        numerator = tc->getState().tempo.timeSignatureNumerator;
+    }
+    double beatsPerBar = static_cast<double>(numerator);
+    double newLen = std::ceil(noteEnd / beatsPerBar) * beatsPerBar;
+    magda::ClipManager::getInstance().resizeClipBeats(clipId, newLen, false, tempo);
+}
+
+void auditionNoteOn(int noteNumber, int velocity) {
+    auto* engine = magda::TrackManager::getInstance().getAudioEngine();
+    if (!engine) return;
+    auto& bridge = *engine->getAudioBridge();
+    auto* vmd = bridge.getQwertyMidiDevice();
+    if (!vmd) return;
+    vmd->keyboardState.noteOn(1, noteNumber, static_cast<float>(velocity) / 127.0f);
+    auto* midiBridge = engine->getMidiBridge();
+    if (midiBridge)
+        midiBridge->broadcastSynthesizedNote(vmd->getDeviceID(), noteNumber, velocity, true);
+}
+
+void auditionNoteOff(int noteNumber) {
+    auto* engine = magda::TrackManager::getInstance().getAudioEngine();
+    if (!engine) return;
+    auto& bridge = *engine->getAudioBridge();
+    auto* vmd = bridge.getQwertyMidiDevice();
+    if (!vmd) return;
+    vmd->keyboardState.noteOff(1, noteNumber, 0.0f);
+    auto* midiBridge = engine->getMidiBridge();
+    if (midiBridge)
+        midiBridge->broadcastSynthesizedNote(vmd->getDeviceID(), noteNumber, 0, false);
+}
+}  // namespace
 
 PianoRollContent::PianoRollContent() {
     setName("PianoRoll");
@@ -222,13 +269,13 @@ void PianoRollContent::handleMidiNoteEvent(magda::TrackId trackId,
 }
 
 void PianoRollContent::setupGridCallbacks() {
-    // Handle note addition
+    // Handle note addition — auto-extend clip if note is beyond boundary
     gridComponent_->onNoteAdded = [](magda::ClipId clipId, double beat, int noteNumber,
                                      double lengthBeats, int velocity) {
+        extendClipIfNeeded(clipId, beat + lengthBeats);
         auto cmd = std::make_unique<magda::AddMidiNoteCommand>(clipId, beat, noteNumber,
                                                                lengthBeats, velocity);
         magda::UndoManager::getInstance().executeCommand(std::move(cmd));
-        // Note: UI refresh handled via ClipManagerListener::clipPropertyChanged()
     };
 
     // Handle note movement
@@ -367,12 +414,22 @@ void PianoRollContent::setupGridCallbacks() {
             magda::UndoManager::getInstance().executeCommand(std::move(resizeCmd));
         };
 
-    // Handle note selection - update SelectionManager
+    // Handle note selection - update SelectionManager and audition
     gridComponent_->onNoteSelected = [](magda::ClipId clipId, size_t noteIndex, bool isAdditive) {
         if (isAdditive) {
             magda::SelectionManager::getInstance().addNoteToSelection(clipId, noteIndex);
         } else {
             magda::SelectionManager::getInstance().selectNote(clipId, noteIndex);
+        }
+        // Audition the selected note
+        auto* clip = magda::ClipManager::getInstance().getClip(clipId);
+        if (clip && noteIndex < clip->midiNotes.size()) {
+            const auto& note = clip->midiNotes[noteIndex];
+            auditionNoteOn(note.noteNumber, note.velocity);
+            int noteNum = note.noteNumber;
+            juce::Timer::callAfterDelay(200, [noteNum]() {
+                auditionNoteOff(noteNum);
+            });
         }
     };
 
@@ -401,6 +458,14 @@ void PianoRollContent::setupGridCallbacks() {
         } else if (velocityLane_) {
             velocityLane_->setNotePreviewPosition(noteIndex, previewBeat, isDragging);
         }
+    };
+
+    // Note audition: play note sound on click/create
+    gridComponent_->onNoteAudition = [](int noteNumber, int velocity) {
+        auditionNoteOn(noteNumber, velocity);
+    };
+    gridComponent_->onNoteAuditionOff = [](int noteNumber) {
+        auditionNoteOff(noteNumber);
     };
 
     // Handle quantize from right-click context menu

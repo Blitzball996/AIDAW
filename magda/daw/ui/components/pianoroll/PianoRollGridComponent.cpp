@@ -587,6 +587,10 @@ void PianoRollGridComponent::mouseDown(const juce::MouseEvent& e) {
             drawingNoteStartBeat_ = insertPos->beat;
             drawingNoteEndBeat_ = insertPos->beat + getDefaultNoteLengthBeats();
             drawingNoteNumber_ = insertPos->noteNumber;
+
+            if (onNoteAudition)
+                onNoteAudition(drawingNoteNumber_, defaultNoteVelocity_);
+
             setMouseCursor(CursorManager::getInstance().getNoteDrawCursor());
             repaint();
             return;
@@ -617,6 +621,9 @@ void PianoRollGridComponent::mouseDrag(const juce::MouseEvent& e) {
 
 void PianoRollGridComponent::mouseUp(const juce::MouseEvent& e) {
     if (isDrawingNote_) {
+        if (onNoteAuditionOff)
+            onNoteAuditionOff(drawingNoteNumber_);
+
         const ClipId clipId = drawingNoteClipId_;
         MidiNote note;
         note.startBeat = std::min(drawingNoteStartBeat_, drawingNoteEndBeat_);
@@ -629,9 +636,12 @@ void PianoRollGridComponent::mouseUp(const juce::MouseEvent& e) {
 
         if (onNoteAdded && clipId != INVALID_CLIP_ID) {
             const auto* clip = ClipManager::getInstance().getClip(clipId);
-            if (clip && ClipOperations::clipMidiNoteToVisibleRange(*clip, note)) {
-                onNoteAdded(clipId, note.startBeat, note.noteNumber, note.lengthBeats,
-                            defaultNoteVelocity_);
+            if (clip) {
+                // Allow notes beyond clip boundary — onNoteAdded will extend the clip
+                if (note.startBeat >= 0.0 && note.lengthBeats > 0.0) {
+                    onNoteAdded(clipId, note.startBeat, note.noteNumber, note.lengthBeats,
+                                defaultNoteVelocity_);
+                }
             }
         }
 

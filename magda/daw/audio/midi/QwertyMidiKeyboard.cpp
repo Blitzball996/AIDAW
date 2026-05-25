@@ -163,6 +163,42 @@ bool QwertyMidiKeyboard::keyPressed(const juce::KeyPress& key, juce::Component*)
         return true;
     }
 
+    // Velocity control: C = decrease, V = increase
+    if (keyCode == 'C') {
+        setVelocity(juce::jmax(1, velocity_ - 14));
+        if (onVelocityChanged) onVelocityChanged(velocity_);
+        return true;
+    }
+    if (keyCode == 'V') {
+        setVelocity(juce::jmin(127, velocity_ + 14));
+        if (onVelocityChanged) onVelocityChanged(velocity_);
+        return true;
+    }
+
+    // Pitch bend: 1 = down, 2 = up
+    if (keyCode == '1') {
+        sendPitchBend(-8192);
+        return true;
+    }
+    if (keyCode == '2') {
+        sendPitchBend(8191);
+        return true;
+    }
+
+    // Mod wheel: 3 = off, 4-8 = increasing values
+    if (keyCode >= '3' && keyCode <= '8') {
+        int modValue = (keyCode == '3') ? 0 : static_cast<int>((keyCode - '3') * 25.5f);
+        sendCC(1, modValue);
+        return true;
+    }
+
+    // Sustain pedal: Tab
+    if (key.getKeyCode() == juce::KeyPress::tabKey) {
+        sustainOn_ = !sustainOn_;
+        sendCC(64, sustainOn_ ? 127 : 0);
+        return true;
+    }
+
     // Spacebar passes through for transport
     if (keyCode == juce::KeyPress::spaceKey)
         return false;
@@ -214,7 +250,35 @@ bool QwertyMidiKeyboard::keyStateChanged(bool /*isKeyDown*/, juce::Component*) {
         sendNoteOff(note);
     }
 
+    // Pitch bend release: when 1 or 2 is released, return to center
+    if (!juce::KeyPress::isKeyCurrentlyDown('1') && !juce::KeyPress::isKeyCurrentlyDown('2')) {
+        sendPitchBend(0);
+    }
+
     return !released.empty();
+}
+
+void QwertyMidiKeyboard::sendPitchBend(int value) {
+    auto* vmd = bridge_.getQwertyMidiDevice();
+    if (!vmd)
+        return;
+    int midiValue = value + 8192;
+    auto msg = juce::MidiMessage::pitchWheel(1, midiValue);
+    // Inject through keyboardState buffer so it reaches the playback graph
+    // via the same path as notes (MidiInputDeviceNode reads from this buffer).
+    juce::MidiBuffer buffer;
+    buffer.addEvent(msg, 0);
+    vmd->keyboardState.processNextMidiBuffer(buffer, 0, 1, true);
+}
+
+void QwertyMidiKeyboard::sendCC(int controller, int value) {
+    auto* vmd = bridge_.getQwertyMidiDevice();
+    if (!vmd)
+        return;
+    auto msg = juce::MidiMessage::controllerEvent(1, controller, value);
+    juce::MidiBuffer buffer;
+    buffer.addEvent(msg, 0);
+    vmd->keyboardState.processNextMidiBuffer(buffer, 0, 1, true);
 }
 
 }  // namespace magda

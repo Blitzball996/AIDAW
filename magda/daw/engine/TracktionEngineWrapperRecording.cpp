@@ -696,18 +696,70 @@ void TracktionEngineWrapper::finalizeMidiRecording(TrackId trackId) {
     midiClip->removeFromParent();
 
     auto& clipManager = ClipManager::getInstance();
-    ClipId clipId =
-        clipManager.createMidiClip(trackId, startSeconds, lengthSeconds, ClipView::Arrangement);
-    activeRecordingClips_[trackId] = clipId;
 
-    if (auto* clipInfo = clipManager.getClip(clipId)) {
-        clipInfo->midiNotes = std::move(recordedNotes);
-        clipInfo->midiCCData = std::move(recordedCC);
-        clipInfo->midiPitchBendData = std::move(recordedPB);
+    // MIDI overdub: check if there's an existing MIDI clip at the recording position.
+    // If so, merge the new notes into it instead of creating a new clip.
+    ClipId existingClipId = clipManager.getClipAtPosition(trackId, startSeconds);
+    ClipInfo* existingClip = existingClipId != INVALID_CLIP_ID
+                                 ? clipManager.getClip(existingClipId)
+                                 : nullptr;
+
+    if (existingClip && existingClip->isMidi()) {
+        // Overdub: merge recorded notes into existing clip
+        double tempo = getTempo();
+        double beatsPerSecond = tempo / 60.0;
+        double existingStartSeconds = existingClip->getTimelineStart(tempo);
+        double offsetBeats = (startSeconds - existingStartSeconds) * beatsPerSecond;
+
+        // Offset recorded notes relative to existing clip's start
+        for (auto& note : recordedNotes) {
+            note.startBeat += offsetBeats;
+        }
+        for (auto& cc : recordedCC) {
+            cc.beatPosition += offsetBeats;
+        }
+        for (auto& pb : recordedPB) {
+            pb.beatPosition += offsetBeats;
+        }
+
+        // Extend existing clip if recording goes beyond its end
+        double recordEndBeats = offsetBeats + lengthSeconds * beatsPerSecond;
+        double existingLengthBeats = existingClip->lengthBeats;
+        if (recordEndBeats > existingLengthBeats) {
+            clipManager.resizeClipBeats(existingClipId, recordEndBeats, false, tempo);
+        }
+
+        // Merge notes into existing clip
+        existingClip->midiNotes.insert(existingClip->midiNotes.end(),
+                                       recordedNotes.begin(), recordedNotes.end());
+        existingClip->midiCCData.insert(existingClip->midiCCData.end(),
+                                        recordedCC.begin(), recordedCC.end());
+        existingClip->midiPitchBendData.insert(existingClip->midiPitchBendData.end(),
+                                               recordedPB.begin(), recordedPB.end());
+
+        activeRecordingClips_[trackId] = existingClipId;
+
+        if (audioBridge_)
+            audioBridge_->syncClipToEngine(existingClipId);
+
+        clipManager.forceNotifyClipPropertyChanged(existingClipId);
+
+        DBG("  overdub merged into existing clip " << existingClipId);
+    } else {
+        // No existing clip — create a new one
+        ClipId clipId =
+            clipManager.createMidiClip(trackId, startSeconds, lengthSeconds, ClipView::Arrangement);
+        activeRecordingClips_[trackId] = clipId;
+
+        if (auto* clipInfo = clipManager.getClip(clipId)) {
+            clipInfo->midiNotes = std::move(recordedNotes);
+            clipInfo->midiCCData = std::move(recordedCC);
+            clipInfo->midiPitchBendData = std::move(recordedPB);
+        }
+
+        if (audioBridge_)
+            audioBridge_->syncClipToEngine(clipId);
     }
-
-    if (audioBridge_)
-        audioBridge_->syncClipToEngine(clipId);
 
     recordingPreviews_.erase(trackId);
 

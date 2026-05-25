@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <functional>
 #include <unordered_set>
 
 namespace magda {
@@ -20,6 +21,10 @@ class AudioBridge;
  *   Black keys: W E   T Y U     O P
  *   White keys: A S D F G H J   K L
  *   Octave:     Z (down) / X (up)
+ *   Velocity:   C (down) / V (up)
+ *   Pitch Bend: 1 (down) / 2 (up), release = center
+ *   Mod Wheel:  3 (off) / 4-8 (increasing)
+ *   Sustain:    Tab (toggle)
  */
 class MidiBridge;
 
@@ -47,10 +52,17 @@ class QwertyMidiKeyboard : public juce::KeyListener {
         return velocity_;
     }
 
+    bool isSustainOn() const {
+        return sustainOn_;
+    }
+
     /** Snapshot of currently held notes, for UI visualisation. */
     std::unordered_set<int> getHeldNotes() const {
         return heldNotes_;
     }
+
+    // Callbacks for UI sync
+    std::function<void(int velocity)> onVelocityChanged;
 
     // juce::KeyListener
     bool keyPressed(const juce::KeyPress& key, juce::Component* originatingComponent) override;
@@ -60,6 +72,8 @@ class QwertyMidiKeyboard : public juce::KeyListener {
     int keyToNote(int keyCode) const;
     void sendNoteOn(int note);
     void sendNoteOff(int note);
+    void sendPitchBend(int value);
+    void sendCC(int controller, int value);
     void allNotesOff();
 
     AudioBridge& bridge_;
@@ -67,6 +81,7 @@ class QwertyMidiKeyboard : public juce::KeyListener {
     bool enabled_ = false;
     int baseOctave_ = 3;
     int velocity_ = 100;
+    bool sustainOn_ = false;
     std::unordered_set<int> heldNotes_;
 };
 
