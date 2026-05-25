@@ -120,11 +120,8 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         if (!bridge) return;
         auto* vmd = bridge->getQwertyMidiDevice();
         if (!vmd) return;
-        int midiValue = value + 8192;
-        auto msg = juce::MidiMessage::pitchWheel(1, midiValue);
-        juce::MidiBuffer buffer;
-        buffer.addEvent(msg, 0);
-        vmd->keyboardState.processNextMidiBuffer(buffer, 0, 1, true);
+        auto msg = juce::MidiMessage::pitchWheel(1, value + 8192);
+        vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
     };
     keyboard_.onSustain = [](bool on) {
         auto* engine = magda::TrackManager::getInstance().getAudioEngine();
@@ -134,9 +131,7 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         auto* vmd = bridge->getQwertyMidiDevice();
         if (!vmd) return;
         auto msg = juce::MidiMessage::controllerEvent(1, 64, on ? 127 : 0);
-        juce::MidiBuffer buffer;
-        buffer.addEvent(msg, 0);
-        vmd->keyboardState.processNextMidiBuffer(buffer, 0, 1, true);
+        vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
     };
     keyboard_.onModWheel = [](int modValue) {
         auto* engine = magda::TrackManager::getInstance().getAudioEngine();
@@ -146,9 +141,7 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         auto* vmd = bridge->getQwertyMidiDevice();
         if (!vmd) return;
         auto msg = juce::MidiMessage::controllerEvent(1, 1, modValue);
-        juce::MidiBuffer buffer;
-        buffer.addEvent(msg, 0);
-        vmd->keyboardState.processNextMidiBuffer(buffer, 0, 1, true);
+        vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
     };
     keyboard_.onVelocityChanged = [this](int vel) {
         velocitySlider_.setValue(vel, juce::dontSendNotification);

@@ -932,7 +932,7 @@ void BottomPanel::addMidiControlsToHeader() {
 }
 
 void BottomPanel::removeMidiControlsFromHeader() {
-    // Reparent back to BottomPanel (hidden)
+    // Reparent back to BottomPanel and force hide
     addChildComponent(timeModeButton_.get());
     addChildComponent(gridNumeratorLabel_.get());
     addChildComponent(gridSlashLabel_.get());
@@ -943,6 +943,16 @@ void BottomPanel::removeMidiControlsFromHeader() {
     addChildComponent(drumGridTab_.get());
     addChildComponent(sliceButton_.get());
     addChildComponent(bendButton_.get());
+    timeModeButton_->setVisible(false);
+    gridNumeratorLabel_->setVisible(false);
+    gridSlashLabel_->setVisible(false);
+    gridDenominatorLabel_->setVisible(false);
+    autoGridButton_->setVisible(false);
+    snapButton_->setVisible(false);
+    pianoRollTab_->setVisible(false);
+    drumGridTab_->setVisible(false);
+    sliceButton_->setVisible(false);
+    bendButton_->setVisible(false);
 }
 
 void BottomPanel::layoutMidiHeaderControls(juce::Rectangle<int> headerBounds) {

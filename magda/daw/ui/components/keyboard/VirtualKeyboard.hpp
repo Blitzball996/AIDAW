@@ -104,6 +104,7 @@ class VirtualKeyboard : public juce::Component, public juce::KeyListener {
     int baseOctave_ = 4;
     int velocity_ = 100;
     bool sustainOn_ = false;
+    int pressedButton_ = -1;  // 0=Z, 1=X, 2=C, 3=V, 4=Sustain
 
     // Currently pressed keys (by MIDI note number)
     std::set<int> pressedNotes_;

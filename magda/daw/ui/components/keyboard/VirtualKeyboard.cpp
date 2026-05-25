@@ -186,9 +186,12 @@ void VirtualKeyboard::paint(juce::Graphics& g) {
     g.setColour(juce::Colour(0xFF3A3A3A));
     g.fillRect(bottomBar);
 
+    const auto btnNormal = juce::Colour(0xFF555555);
+    const auto btnPressed = juce::Colour(0xFF888888);
+
     // Octave down button
     auto zBtn = bottomBar.removeFromLeft(24);
-    g.setColour(juce::Colour(0xFF555555));
+    g.setColour(pressedButton_ == 0 ? btnPressed : btnNormal);
     g.fillRoundedRectangle(zBtn.reduced(2).toFloat(), 3.0f);
     g.setColour(juce::Colours::white);
     g.drawText("Z", zBtn, juce::Justification::centred);
@@ -200,7 +203,7 @@ void VirtualKeyboard::paint(juce::Graphics& g) {
 
     // Octave up button
     auto xBtn = bottomBar.removeFromLeft(24);
-    g.setColour(juce::Colour(0xFF555555));
+    g.setColour(pressedButton_ == 1 ? btnPressed : btnNormal);
     g.fillRoundedRectangle(xBtn.reduced(2).toFloat(), 3.0f);
     g.setColour(juce::Colours::white);
     g.drawText("X", xBtn, juce::Justification::centred);
@@ -209,7 +212,7 @@ void VirtualKeyboard::paint(juce::Graphics& g) {
 
     // Velocity down button
     auto cBtn = bottomBar.removeFromLeft(24);
-    g.setColour(juce::Colour(0xFF555555));
+    g.setColour(pressedButton_ == 2 ? btnPressed : btnNormal);
     g.fillRoundedRectangle(cBtn.reduced(2).toFloat(), 3.0f);
     g.setColour(juce::Colours::white);
     g.drawText("C", cBtn, juce::Justification::centred);
@@ -221,7 +224,7 @@ void VirtualKeyboard::paint(juce::Graphics& g) {
 
     // Velocity up button
     auto vBtn = bottomBar.removeFromLeft(24);
-    g.setColour(juce::Colour(0xFF555555));
+    g.setColour(pressedButton_ == 3 ? btnPressed : btnNormal);
     g.fillRoundedRectangle(vBtn.reduced(2).toFloat(), 3.0f);
     g.setColour(juce::Colours::white);
     g.drawText("V", vBtn, juce::Justification::centred);
@@ -230,7 +233,8 @@ void VirtualKeyboard::paint(juce::Graphics& g) {
 
     // Sustain button
     auto susBtn = bottomBar.removeFromLeft(70);
-    g.setColour(sustainOn_ ? DarkTheme::getColour(DarkTheme::ACCENT_GREEN) : juce::Colour(0xFF555555));
+    auto susColor = sustainOn_ ? DarkTheme::getColour(DarkTheme::ACCENT_GREEN) : btnNormal;
+    g.setColour(pressedButton_ == 4 ? susColor.brighter(0.3f) : susColor);
     g.fillRoundedRectangle(susBtn.reduced(2).toFloat(), 3.0f);
     g.setColour(juce::Colours::white);
     g.drawText("Tab:Sus", susBtn, juce::Justification::centred);
@@ -347,19 +351,19 @@ void VirtualKeyboard::mouseDown(const juce::MouseEvent& e) {
         // Match the layout from paint(): Z(24) Oct(50) X(24) gap(12) C(24) Vel(50) V(24) gap(12) Sus(70)
         int pos = 0;
         // Z button
-        if (x >= pos && x < pos + 24) { setBaseOctave(juce::jmax(0, baseOctave_ - 1)); repaint(); return; }
+        if (x >= pos && x < pos + 24) { pressedButton_ = 0; setBaseOctave(juce::jmax(0, baseOctave_ - 1)); repaint(); return; }
         pos += 24 + 50;  // skip Z + Oct label
         // X button
-        if (x >= pos && x < pos + 24) { setBaseOctave(juce::jmin(8, baseOctave_ + 1)); repaint(); return; }
+        if (x >= pos && x < pos + 24) { pressedButton_ = 1; setBaseOctave(juce::jmin(8, baseOctave_ + 1)); repaint(); return; }
         pos += 24 + 12;  // skip X + gap
         // C button
-        if (x >= pos && x < pos + 24) { setVelocity(juce::jmax(1, velocity_ - 14)); if (onVelocityChanged) onVelocityChanged(velocity_); repaint(); return; }
+        if (x >= pos && x < pos + 24) { pressedButton_ = 2; setVelocity(juce::jmax(1, velocity_ - 14)); if (onVelocityChanged) onVelocityChanged(velocity_); repaint(); return; }
         pos += 24 + 50;  // skip C + Vel label
         // V button
-        if (x >= pos && x < pos + 24) { setVelocity(juce::jmin(127, velocity_ + 14)); if (onVelocityChanged) onVelocityChanged(velocity_); repaint(); return; }
+        if (x >= pos && x < pos + 24) { pressedButton_ = 3; setVelocity(juce::jmin(127, velocity_ + 14)); if (onVelocityChanged) onVelocityChanged(velocity_); repaint(); return; }
         pos += 24 + 12;  // skip V + gap
         // Sustain button
-        if (x >= pos && x < pos + 70) { sustainOn_ = !sustainOn_; if (onSustain) onSustain(sustainOn_); repaint(); return; }
+        if (x >= pos && x < pos + 70) { pressedButton_ = 4; sustainOn_ = !sustainOn_; if (onSustain) onSustain(sustainOn_); repaint(); return; }
         return;
     }
 
@@ -408,6 +412,11 @@ void VirtualKeyboard::mouseUp(const juce::MouseEvent&) {
     }
     // Release pitch bend on mouse up (return to center)
     if (onPitchBend) onPitchBend(0);
+    // Clear button press highlight
+    if (pressedButton_ >= 0) {
+        pressedButton_ = -1;
+        repaint();
+    }
 }
 
 void VirtualKeyboard::setRecording(bool shouldRecord, double transportPositionBeats) {

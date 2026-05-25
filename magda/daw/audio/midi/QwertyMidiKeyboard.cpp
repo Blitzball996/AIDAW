@@ -262,13 +262,8 @@ void QwertyMidiKeyboard::sendPitchBend(int value) {
     auto* vmd = bridge_.getQwertyMidiDevice();
     if (!vmd)
         return;
-    int midiValue = value + 8192;
-    auto msg = juce::MidiMessage::pitchWheel(1, midiValue);
-    // Inject through keyboardState buffer so it reaches the playback graph
-    // via the same path as notes (MidiInputDeviceNode reads from this buffer).
-    juce::MidiBuffer buffer;
-    buffer.addEvent(msg, 0);
-    vmd->keyboardState.processNextMidiBuffer(buffer, 0, 1, true);
+    auto msg = juce::MidiMessage::pitchWheel(1, value + 8192);
+    vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
 }
 
 void QwertyMidiKeyboard::sendCC(int controller, int value) {
@@ -276,9 +271,7 @@ void QwertyMidiKeyboard::sendCC(int controller, int value) {
     if (!vmd)
         return;
     auto msg = juce::MidiMessage::controllerEvent(1, controller, value);
-    juce::MidiBuffer buffer;
-    buffer.addEvent(msg, 0);
-    vmd->keyboardState.processNextMidiBuffer(buffer, 0, 1, true);
+    vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
 }
 
 }  // namespace magda
