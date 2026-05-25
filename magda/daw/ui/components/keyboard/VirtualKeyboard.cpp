@@ -400,6 +400,29 @@ void VirtualKeyboard::mouseDown(const juce::MouseEvent& e) {
 }
 
 void VirtualKeyboard::mouseDrag(const juce::MouseEvent& e) {
+    constexpr int leftPanelW = 50;
+    constexpr int bottomBarH = 24;
+
+    // Handle drag in left panel (continuous pitch bend / mod wheel control)
+    if (e.getPosition().getX() < leftPanelW && e.getPosition().getY() < getHeight() - bottomBarH) {
+        auto keyArea = getLocalBounds();
+        keyArea.removeFromBottom(bottomBarH);
+        auto leftArea = keyArea.removeFromLeft(leftPanelW);
+
+        if (e.getPosition().getX() < 24) {
+            float ratio = 1.0f - static_cast<float>(e.getPosition().getY() - leftArea.getY()) / static_cast<float>(leftArea.getHeight());
+            int pbVal = static_cast<int>((ratio - 0.5f) * 2.0f * 8191.0f);
+            pbVal = juce::jlimit(-8192, 8191, pbVal);
+            if (onPitchBend) onPitchBend(pbVal);
+        } else {
+            float ratio = 1.0f - static_cast<float>(e.getPosition().getY() - leftArea.getY()) / static_cast<float>(leftArea.getHeight());
+            int modVal = juce::jlimit(0, 127, static_cast<int>(ratio * 127));
+            if (onModWheel) onModWheel(modVal);
+        }
+        repaint();
+        return;
+    }
+
     int note = getNoteAtPosition(e.getPosition());
     if (note != mouseNote_) {
         if (mouseNote_ >= 0) triggerNoteOff(mouseNote_);

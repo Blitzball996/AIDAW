@@ -53,6 +53,19 @@ INSTRUCTIONS:
   CHORD <root> <quality> <beat> <len> [vel]  - Add chord to current clip
   NOTE <pitch> <beat> <length> [vel]         - Add note to current clip
 
+AVAILABLE INSTRUMENTS (use with TRACK FX or FX):
+  4osc          - 4OSC Synth (subtractive synth with 4 oscillators)
+  magdasampler  - MAGDA Sampler (sample-based instrument)
+  drumgrid      - Drum Grid (drum machine)
+
+AVAILABLE EFFECTS:
+  eq, reverb, delay, lowpass, pitchshift, impulseresponse, tone,
+  magda_compressor, magda_chorus, magda_phaser, magda_mod, magda_flanger,
+  magda_ring_mod, magda_freq_shift, magda_limiter, magda_clipper, faust
+
+MIDI PROCESSORS:
+  arpeggiator, midichordengine, stepsequencer
+
 After TRACK, FX/CLIP/SET apply to that track automatically.
 After CLIP, ARP/CHORD/NOTE apply to that clip automatically.
 Use a numeric id to target a different track: CLIP 2 1 4, SET 3 vol=-6

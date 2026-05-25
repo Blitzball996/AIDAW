@@ -122,6 +122,12 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         if (!vmd) return;
         auto msg = juce::MidiMessage::pitchWheel(1, value + 8192);
         vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
+        // Also inject directly to selected track for immediate effect
+        auto selectedTrack = magda::TrackManager::getInstance().getSelectedTrack();
+        if (selectedTrack != magda::INVALID_TRACK_ID) {
+            if (auto* teTrack = bridge->getAudioTrack(selectedTrack))
+                teTrack->injectLiveMidiMessage(msg, vmd->getMPESourceID());
+        }
     };
     keyboard_.onSustain = [](bool on) {
         auto* engine = magda::TrackManager::getInstance().getAudioEngine();
@@ -132,6 +138,11 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         if (!vmd) return;
         auto msg = juce::MidiMessage::controllerEvent(1, 64, on ? 127 : 0);
         vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
+        auto selectedTrack = magda::TrackManager::getInstance().getSelectedTrack();
+        if (selectedTrack != magda::INVALID_TRACK_ID) {
+            if (auto* teTrack = bridge->getAudioTrack(selectedTrack))
+                teTrack->injectLiveMidiMessage(msg, vmd->getMPESourceID());
+        }
     };
     keyboard_.onModWheel = [](int modValue) {
         auto* engine = magda::TrackManager::getInstance().getAudioEngine();
@@ -142,6 +153,11 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         if (!vmd) return;
         auto msg = juce::MidiMessage::controllerEvent(1, 1, modValue);
         vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
+        auto selectedTrack = magda::TrackManager::getInstance().getSelectedTrack();
+        if (selectedTrack != magda::INVALID_TRACK_ID) {
+            if (auto* teTrack = bridge->getAudioTrack(selectedTrack))
+                teTrack->injectLiveMidiMessage(msg, vmd->getMPESourceID());
+        }
     };
     keyboard_.onVelocityChanged = [this](int vel) {
         velocitySlider_.setValue(vel, juce::dontSendNotification);

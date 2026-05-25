@@ -4,6 +4,7 @@
 
 #include "AudioBridge.hpp"
 #include "MidiBridge.hpp"
+#include "../core/TrackManager.hpp"
 
 namespace magda {
 
@@ -264,6 +265,11 @@ void QwertyMidiKeyboard::sendPitchBend(int value) {
         return;
     auto msg = juce::MidiMessage::pitchWheel(1, value + 8192);
     vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
+    auto selectedTrack = TrackManager::getInstance().getSelectedTrack();
+    if (selectedTrack != INVALID_TRACK_ID) {
+        if (auto* teTrack = bridge_.getAudioTrack(selectedTrack))
+            teTrack->injectLiveMidiMessage(msg, vmd->getMPESourceID());
+    }
 }
 
 void QwertyMidiKeyboard::sendCC(int controller, int value) {
@@ -272,6 +278,11 @@ void QwertyMidiKeyboard::sendCC(int controller, int value) {
         return;
     auto msg = juce::MidiMessage::controllerEvent(1, controller, value);
     vmd->handleIncomingMidiMessage(msg, vmd->getMPESourceID());
+    auto selectedTrack = TrackManager::getInstance().getSelectedTrack();
+    if (selectedTrack != INVALID_TRACK_ID) {
+        if (auto* teTrack = bridge_.getAudioTrack(selectedTrack))
+            teTrack->injectLiveMidiMessage(msg, vmd->getMPESourceID());
+    }
 }
 
 }  // namespace magda
