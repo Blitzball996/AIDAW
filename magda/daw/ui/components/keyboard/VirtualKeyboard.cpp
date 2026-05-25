@@ -369,17 +369,20 @@ void VirtualKeyboard::mouseDown(const juce::MouseEvent& e) {
 
     // Check if click is in left panel (pitch bend / mod wheel)
     if (e.getPosition().getX() < leftPanelW) {
+        // Use the key area (full bounds minus left panel and bottom bar)
+        auto keyArea = getLocalBounds();
+        keyArea.removeFromBottom(bottomBarH);
+        auto leftArea = keyArea.removeFromLeft(leftPanelW);
+
         if (e.getPosition().getX() < 24) {
-            // Pitch bend area — click top half = bend up, bottom half = bend down
-            int midY = bounds.getCentreY();
-            if (e.getPosition().getY() < midY) {
-                if (onPitchBend) onPitchBend(8191);
-            } else {
-                if (onPitchBend) onPitchBend(-8192);
-            }
+            // Pitch bend area — map Y to -8192..8191
+            float ratio = 1.0f - static_cast<float>(e.getPosition().getY() - leftArea.getY()) / static_cast<float>(leftArea.getHeight());
+            int pbVal = static_cast<int>((ratio - 0.5f) * 2.0f * 8191.0f);
+            pbVal = juce::jlimit(-8192, 8191, pbVal);
+            if (onPitchBend) onPitchBend(pbVal);
         } else {
             // Mod wheel area — map Y position to 0-127
-            float ratio = 1.0f - static_cast<float>(e.getPosition().getY() - bounds.getY()) / static_cast<float>(bounds.getHeight());
+            float ratio = 1.0f - static_cast<float>(e.getPosition().getY() - leftArea.getY()) / static_cast<float>(leftArea.getHeight());
             int modVal = juce::jlimit(0, 127, static_cast<int>(ratio * 127));
             if (onModWheel) onModWheel(modVal);
         }

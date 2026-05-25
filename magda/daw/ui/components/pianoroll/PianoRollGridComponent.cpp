@@ -784,19 +784,19 @@ void PianoRollGridComponent::mouseDoubleClick(const juce::MouseEvent& e) {
 
     auto insertPos = getNoteInsertPosition(e.getPosition());
     if (onNoteAdded && insertPos.has_value()) {
-        MidiNote previewNote;
-        previewNote.startBeat = insertPos->beat;
-        previewNote.noteNumber = insertPos->noteNumber;
-        previewNote.lengthBeats = getDefaultNoteLengthBeats();
+        double beat = insertPos->beat;
+        int noteNum = insertPos->noteNumber;
+        double length = getDefaultNoteLengthBeats();
 
-        const auto* targetClip = ClipManager::getInstance().getClip(insertPos->clipId);
-        if (targetClip != nullptr &&
-            !ClipOperations::clipMidiNoteToVisibleRange(*targetClip, previewNote)) {
-            return;
-        }
+        if (onNoteAudition)
+            onNoteAudition(noteNum, defaultNoteVelocity_);
 
-        onNoteAdded(insertPos->clipId, previewNote.startBeat, previewNote.noteNumber,
-                    previewNote.lengthBeats, defaultNoteVelocity_);
+        onNoteAdded(insertPos->clipId, beat, noteNum, length, defaultNoteVelocity_);
+
+        if (onNoteAuditionOff)
+            juce::Timer::callAfterDelay(150, [this, noteNum]() {
+                if (onNoteAuditionOff) onNoteAuditionOff(noteNum);
+            });
     }
 }
 

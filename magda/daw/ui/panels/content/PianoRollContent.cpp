@@ -47,7 +47,11 @@ void extendClipIfNeeded(magda::ClipId clipId, double noteEnd) {
         numerator = tc->getState().tempo.timeSignatureNumerator;
     }
     double beatsPerBar = static_cast<double>(numerator);
+    // noteEnd is relative to visible start; compute new total clip length
     double newLen = std::ceil(noteEnd / beatsPerBar) * beatsPerBar;
+    // Ensure we're extending, not shrinking
+    if (newLen <= range.endBeat())
+        newLen = range.endBeat() + beatsPerBar;
     magda::ClipManager::getInstance().resizeClipBeats(clipId, newLen, false, tempo);
 }
 

@@ -62,8 +62,10 @@ te::VirtualMidiInputDevice* MidiInputRouter::getQwertyMidiDevice() {
             }
         }
 
-        if (qwertyMidiDevice_)
+        if (qwertyMidiDevice_) {
+            qwertyMidiDevice_->setMonitorMode(te::InputDevice::MonitorMode::on);
             DBG("QWERTY virtual MIDI device ready");
+        }
     }
 
     if (qwertyNeedsContextRefresh_) {
