@@ -179,28 +179,55 @@ void VirtualKeyboard::paint(juce::Graphics& g) {
         }
     }
 
-    // === BOTTOM BAR: [Z◀ Oct ▶X]  [C◀ Vel ▶V]  [Tab:Sus] ===
+    // === BOTTOM BAR: [Z Oct X]  [C Vel V]  [Tab:Sus] ===
     g.setFont(FontManager::getInstance().getUIFont(10.0f));
     g.setColour(juce::Colour(0xFF3A3A3A));
     g.fillRect(bottomBar);
 
-    auto octBtn = bottomBar.removeFromLeft(100);
+    // Octave down button
+    auto zBtn = bottomBar.removeFromLeft(24);
     g.setColour(juce::Colour(0xFF555555));
-    g.fillRoundedRectangle(octBtn.reduced(2).toFloat(), 3.0f);
+    g.fillRoundedRectangle(zBtn.reduced(2).toFloat(), 3.0f);
     g.setColour(juce::Colours::white);
-    g.drawText("Z \xe2\x97\x80 Oct:" + juce::String(baseOctave_) + " \xe2\x96\xb6 X",
-               octBtn, juce::Justification::centred);
+    g.drawText("Z", zBtn, juce::Justification::centred);
 
-    bottomBar.removeFromLeft(6);
-    auto velBtn = bottomBar.removeFromLeft(100);
+    // Octave label
+    auto octLabel = bottomBar.removeFromLeft(50);
+    g.setColour(juce::Colours::white);
+    g.drawText("Oct:" + juce::String(baseOctave_), octLabel, juce::Justification::centred);
+
+    // Octave up button
+    auto xBtn = bottomBar.removeFromLeft(24);
     g.setColour(juce::Colour(0xFF555555));
-    g.fillRoundedRectangle(velBtn.reduced(2).toFloat(), 3.0f);
+    g.fillRoundedRectangle(xBtn.reduced(2).toFloat(), 3.0f);
     g.setColour(juce::Colours::white);
-    g.drawText("C \xe2\x97\x80 Vel:" + juce::String(velocity_) + " \xe2\x96\xb6 V",
-               velBtn, juce::Justification::centred);
+    g.drawText("X", xBtn, juce::Justification::centred);
 
-    bottomBar.removeFromLeft(6);
-    auto susBtn = bottomBar.removeFromLeft(80);
+    bottomBar.removeFromLeft(12);
+
+    // Velocity down button
+    auto cBtn = bottomBar.removeFromLeft(24);
+    g.setColour(juce::Colour(0xFF555555));
+    g.fillRoundedRectangle(cBtn.reduced(2).toFloat(), 3.0f);
+    g.setColour(juce::Colours::white);
+    g.drawText("C", cBtn, juce::Justification::centred);
+
+    // Velocity label
+    auto velLabel = bottomBar.removeFromLeft(50);
+    g.setColour(juce::Colours::white);
+    g.drawText("Vel:" + juce::String(velocity_), velLabel, juce::Justification::centred);
+
+    // Velocity up button
+    auto vBtn = bottomBar.removeFromLeft(24);
+    g.setColour(juce::Colour(0xFF555555));
+    g.fillRoundedRectangle(vBtn.reduced(2).toFloat(), 3.0f);
+    g.setColour(juce::Colours::white);
+    g.drawText("V", vBtn, juce::Justification::centred);
+
+    bottomBar.removeFromLeft(12);
+
+    // Sustain button
+    auto susBtn = bottomBar.removeFromLeft(70);
     g.setColour(sustainOn_ ? DarkTheme::getColour(DarkTheme::ACCENT_GREEN) : juce::Colour(0xFF555555));
     g.fillRoundedRectangle(susBtn.reduced(2).toFloat(), 3.0f);
     g.setColour(juce::Colours::white);

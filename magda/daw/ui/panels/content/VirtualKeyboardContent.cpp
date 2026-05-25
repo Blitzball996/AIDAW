@@ -1,5 +1,7 @@
 #include "VirtualKeyboardContent.hpp"
 
+#include <tracktion_engine/tracktion_engine.h>
+
 #include "../../themes/DarkTheme.hpp"
 #include "../../themes/FontManager.hpp"
 #include "../../../audio/AudioBridge.hpp"
@@ -111,14 +113,36 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
         if (midiBridge)
             midiBridge->broadcastSynthesizedNote(vmd->getDeviceID(), noteNumber, 0, false);
     };
-    keyboard_.onPitchBend = [](int /*value*/) {
-        // TODO: route pitch bend to active instrument track
+    keyboard_.onPitchBend = [](int value) {
+        auto* engine = magda::TrackManager::getInstance().getAudioEngine();
+        if (!engine) return;
+        auto* bridge = engine->getAudioBridge();
+        if (!bridge) return;
+        auto* vmd = bridge->getQwertyMidiDevice();
+        if (!vmd) return;
+        int midiValue = value + 8192;
+        auto msg = juce::MidiMessage::pitchWheel(1, midiValue);
+        vmd->handleIncomingMidiMessage(msg, tracktion::MPESourceID());
     };
-    keyboard_.onSustain = [](bool /*on*/) {
-        // TODO: route sustain CC64 to active instrument track
+    keyboard_.onSustain = [](bool on) {
+        auto* engine = magda::TrackManager::getInstance().getAudioEngine();
+        if (!engine) return;
+        auto* bridge = engine->getAudioBridge();
+        if (!bridge) return;
+        auto* vmd = bridge->getQwertyMidiDevice();
+        if (!vmd) return;
+        auto msg = juce::MidiMessage::controllerEvent(1, 64, on ? 127 : 0);
+        vmd->handleIncomingMidiMessage(msg, tracktion::MPESourceID());
     };
-    keyboard_.onModWheel = [](int /*modValue*/) {
-        // TODO: route mod wheel CC1 to active instrument track
+    keyboard_.onModWheel = [](int modValue) {
+        auto* engine = magda::TrackManager::getInstance().getAudioEngine();
+        if (!engine) return;
+        auto* bridge = engine->getAudioBridge();
+        if (!bridge) return;
+        auto* vmd = bridge->getQwertyMidiDevice();
+        if (!vmd) return;
+        auto msg = juce::MidiMessage::controllerEvent(1, 1, modValue);
+        vmd->handleIncomingMidiMessage(msg, tracktion::MPESourceID());
     };
     keyboard_.onVelocityChanged = [this](int vel) {
         velocitySlider_.setValue(vel, juce::dontSendNotification);
