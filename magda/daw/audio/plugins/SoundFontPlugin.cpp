@@ -14,6 +14,7 @@ SoundFontPlugin::SoundFontPlugin(const te::PluginCreationInfo& info) : te::Plugi
 
     programValue.referTo(state, juce::Identifier("program"), um, 0);
     bankValue.referTo(state, juce::Identifier("bank"), um, 0);
+    soundFontFileValue.referTo(state, juce::Identifier("soundFontFile"), um, "GeneralUser_GS.sf2");
 
     volumeParam = addParam("volume", TRANS("Volume"), {0.0f, 1.0f},
                            [](float v) { return juce::String(v, 2); },
@@ -31,9 +32,19 @@ SoundFontPlugin::~SoundFontPlugin() {
 }
 
 void SoundFontPlugin::loadSoundFont() {
-    auto exeDir = juce::File::getSpecialLocation(
-        juce::File::currentExecutableFile).getParentDirectory();
-    auto sf2File = exeDir.getChildFile("soundfonts").getChildFile("GeneralUser_GS.sf2");
+    juce::String fileName = soundFontFileValue.get();
+    if (fileName.isEmpty())
+        fileName = "GeneralUser_GS.sf2";
+
+    auto sf2File = getSoundFontsDirectory().getChildFile(fileName);
+    loadSoundFontFromFile(sf2File);
+}
+
+void SoundFontPlugin::loadSoundFontFromFile(const juce::File& sf2File) {
+    if (soundFont_) {
+        tsf_close(soundFont_);
+        soundFont_ = nullptr;
+    }
 
     if (!sf2File.existsAsFile()) {
         DBG("SoundFontPlugin: SF2 not found at " << sf2File.getFullPathName());
@@ -127,11 +138,40 @@ void SoundFontPlugin::applyToBuffer(const te::PluginRenderContext& rc) {
 void SoundFontPlugin::restorePluginStateFromValueTree(const juce::ValueTree& v) {
     te::copyPropertiesToCachedValues(v, programValue, bankValue);
 
+    if (v.hasProperty("soundFontFile"))
+        soundFontFileValue = v.getProperty("soundFontFile").toString();
+
     for (auto p : getAutomatableParameters())
         p->updateFromAttachedValue();
 
-    if (soundFont_)
-        applyProgramChange();
+    loadSoundFont();
+}
+
+juce::File SoundFontPlugin::getSoundFontsDirectory() const {
+    auto exeDir = juce::File::getSpecialLocation(
+        juce::File::currentExecutableFile).getParentDirectory();
+    return exeDir.getChildFile("soundfonts");
+}
+
+juce::StringArray SoundFontPlugin::getAvailableSoundFonts() const {
+    juce::StringArray result;
+    auto dir = getSoundFontsDirectory();
+    if (dir.isDirectory()) {
+        for (const auto& entry : juce::RangedDirectoryIterator(dir, false, "*.sf2;*.sf3")) {
+            result.add(entry.getFile().getFileName());
+        }
+    }
+    result.sort(true);
+    return result;
+}
+
+juce::String SoundFontPlugin::getCurrentSoundFontName() const {
+    return soundFontFileValue.get();
+}
+
+void SoundFontPlugin::loadSoundFontByName(const juce::String& name) {
+    soundFontFileValue = name;
+    loadSoundFont();
 }
 
 }  // namespace magda::daw::audio

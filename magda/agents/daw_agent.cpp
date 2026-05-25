@@ -55,8 +55,9 @@ INSTRUCTIONS:
 
 AVAILABLE INSTRUMENTS (use with TRACK FX or FX):
   4osc          - 4OSC Synth (subtractive synth with 4 oscillators)
+  soundfont     - SoundFont Player (SF2 multi-timbral, piano/strings/brass/drums)
   magdasampler  - MAGDA Sampler (sample-based instrument)
-  drumgrid      - Drum Grid (drum machine)
+  drumgrid      - Drum Grid (drum machine with step sequencer)
 
 AVAILABLE EFFECTS:
   eq, reverb, delay, lowpass, pitchshift, impulseresponse, tone,

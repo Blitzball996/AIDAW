@@ -55,7 +55,13 @@ class SoundFontPlugin : public te::Plugin {
 
     void restorePluginStateFromValueTree(const juce::ValueTree&) override;
 
+    // Multi-SF2 support
+    juce::StringArray getAvailableSoundFonts() const;
+    juce::String getCurrentSoundFontName() const;
+    void loadSoundFontByName(const juce::String& name);
+
     juce::CachedValue<int> programValue, bankValue;
+    juce::CachedValue<juce::String> soundFontFileValue;
     te::AutomatableParameter::Ptr volumeParam;
 
   private:
@@ -65,7 +71,9 @@ class SoundFontPlugin : public te::Plugin {
     int lastBank_ = 0;
 
     void loadSoundFont();
+    void loadSoundFontFromFile(const juce::File& file);
     void applyProgramChange();
+    juce::File getSoundFontsDirectory() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SoundFontPlugin)
 };
