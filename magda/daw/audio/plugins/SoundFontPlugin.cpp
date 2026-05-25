@@ -97,7 +97,13 @@ void SoundFontPlugin::applyToBuffer(const te::PluginRenderContext& rc) {
         return;
 
     int program = programValue.get();
+    int bank = bankValue.get();
     float volume = volumeParam->getCurrentValue();
+
+    // Ensure program is up to date (handles runtime changes)
+    if (program != lastProgram_ || bank != lastBank_) {
+        applyProgramChange();
+    }
 
     if (rc.bufferForMidiMessages != nullptr) {
         for (auto& m : *rc.bufferForMidiMessages) {
@@ -112,6 +118,9 @@ void SoundFontPlugin::applyToBuffer(const te::PluginRenderContext& rc) {
             } else if (m.isController()) {
                 tsf_channel_midi_control(soundFont_, ch, m.getControllerNumber(),
                                          m.getControllerValue());
+            } else if (m.isProgramChange()) {
+                tsf_channel_set_presetnumber(soundFont_, ch, m.getProgramChangeNumber(),
+                                            bank != 0 ? 1 : 0);
             } else if (m.isAllNotesOff() || m.isAllSoundOff()) {
                 tsf_channel_note_off_all(soundFont_, ch);
             }

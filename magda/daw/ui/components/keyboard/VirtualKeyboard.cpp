@@ -270,13 +270,13 @@ bool VirtualKeyboard::keyPressed(const juce::KeyPress& key, juce::Component*) {
         return true;
     }
 
-    // Pitch bend: 1 = down, 2 = up
+    // Pitch bend: 1 = down, 2 = up (±2 semitones range)
     if (keyChar == '1') {
-        if (onPitchBend) onPitchBend(-8192);
+        if (onPitchBend) onPitchBend(-4096);
         return true;
     }
     if (keyChar == '2') {
-        if (onPitchBend) onPitchBend(8191);
+        if (onPitchBend) onPitchBend(4096);
         return true;
     }
 

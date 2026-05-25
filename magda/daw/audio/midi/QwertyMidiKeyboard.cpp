@@ -176,13 +176,13 @@ bool QwertyMidiKeyboard::keyPressed(const juce::KeyPress& key, juce::Component*)
         return true;
     }
 
-    // Pitch bend: 1 = down, 2 = up
+    // Pitch bend: 1 = down, 2 = up (±2 semitones)
     if (keyCode == '1') {
-        sendPitchBend(-8192);
+        sendPitchBend(-4096);
         return true;
     }
     if (keyCode == '2') {
-        sendPitchBend(8191);
+        sendPitchBend(4096);
         return true;
     }
 
