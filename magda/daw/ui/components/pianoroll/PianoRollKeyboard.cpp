@@ -194,24 +194,15 @@ void PianoRollKeyboard::mouseDrag(const juce::MouseEvent& event) {
             onZoomChanged(newHeight, zoomAnchorNote_, mouseDownY_);
         }
     } else if (dragMode_ == DragMode::Scrolling) {
-        // Slide preview: play notes as mouse crosses note boundaries
+        // Slide preview only: play notes as mouse crosses note boundaries
+        // Scrolling is handled exclusively by mouseWheelMove
         int noteUnderMouse = yToNoteNumber(event.y);
         if (noteUnderMouse != lastPreviewNote_ && onNotePreview) {
-            // Note-off for previous note
             onNotePreview(lastPreviewNote_, 0, false);
             setNotePressed(lastPreviewNote_, false);
-            // Note-on for new note
             lastPreviewNote_ = noteUnderMouse;
             onNotePreview(lastPreviewNote_, 100, true);
             setNotePressed(lastPreviewNote_, true);
-        }
-
-        // Also scroll
-        int scrollDelta = lastDragY_ - event.y;
-        lastDragY_ = event.y;
-
-        if (onScrollRequested && scrollDelta != 0) {
-            onScrollRequested(scrollDelta);
         }
     }
 }

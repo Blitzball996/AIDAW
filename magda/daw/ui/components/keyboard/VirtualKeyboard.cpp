@@ -66,6 +66,8 @@ const std::array<VirtualKeyboard::KeyInfo, 18> VirtualKeyboard::keyMapping_ = {{
 
 VirtualKeyboard::VirtualKeyboard() {
     setWantsKeyboardFocus(true);
+    setMouseClickGrabsKeyboardFocus(true);
+    setInterceptsMouseClicks(true, false);
 }
 
 VirtualKeyboard::~VirtualKeyboard() = default;
