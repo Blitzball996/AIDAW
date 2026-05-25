@@ -1309,8 +1309,15 @@ bool ClipSynchronizer::syncMidiClipToEngine(ClipId clipId, const ClipInfo* clip)
     // Get the Tracktion AudioTrack for this MAGDA track
     auto* audioTrack = trackController_.getAudioTrack(clip->trackId);
     if (!audioTrack) {
-        DBG("syncClipToEngine: Tracktion track not found for MAGDA track: " << clip->trackId);
-        return false;
+        // Auto-create TE track if it doesn't exist yet
+        auto* trackInfo = TrackManager::getInstance().getTrack(clip->trackId);
+        juce::String trackName = trackInfo ? trackInfo->name : "Track";
+        audioTrack = trackController_.createAudioTrack(clip->trackId, trackName);
+        if (!audioTrack) {
+            DBG("syncClipToEngine: Failed to create Tracktion track for MAGDA track: " << clip->trackId);
+            return false;
+        }
+        DBG("syncClipToEngine: Auto-created TE track for MAGDA track: " << clip->trackId);
     }
 
     namespace te = tracktion;
@@ -1461,11 +1468,16 @@ bool ClipSynchronizer::syncMidiClipToEngine(ClipId clipId, const ClipInfo* clip)
 bool ClipSynchronizer::syncAudioClipToEngine(ClipId clipId, const ClipInfo* clip) {
     namespace te = tracktion;
 
-    // 1. Get Tracktion track
+    // 1. Get Tracktion track (auto-create if missing)
     auto* audioTrack = trackController_.getAudioTrack(clip->trackId);
     if (!audioTrack) {
-        DBG("ClipSynchronizer: Track not found for audio clip " << clipId);
-        return false;
+        auto* trackInfo = TrackManager::getInstance().getTrack(clip->trackId);
+        juce::String trackName = trackInfo ? trackInfo->name : "Track";
+        audioTrack = trackController_.createAudioTrack(clip->trackId, trackName);
+        if (!audioTrack) {
+            DBG("ClipSynchronizer: Failed to create track for audio clip " << clipId);
+            return false;
+        }
     }
 
     // 2. Check if clip already synced
