@@ -117,6 +117,9 @@ VirtualKeyboardContent::VirtualKeyboardContent() {
     keyboard_.onSustain = [](bool /*on*/) {
         // TODO: route sustain CC64 to active instrument track
     };
+    keyboard_.onModWheel = [](int /*modValue*/) {
+        // TODO: route mod wheel CC1 to active instrument track
+    };
     keyboard_.onVelocityChanged = [this](int vel) {
         velocitySlider_.setValue(vel, juce::dontSendNotification);
     };

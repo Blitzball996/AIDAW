@@ -203,6 +203,14 @@ bool VirtualKeyboard::keyPressed(const juce::KeyPress& key, juce::Component*) {
     // Check if already held
     if (heldComputerKeys_.count(keyChar) > 0) return true;
 
+    // Modulation wheel: 3=off, 4-8=increasing values
+    if (keyChar >= '3' && keyChar <= '8') {
+        int modValue = (keyChar == '3') ? 0 : static_cast<int>((keyChar - '3') * 25.5f);
+        if (onModWheel) onModWheel(modValue);
+        repaint();
+        return true;
+    }
+
     int note = computerKeyToNote(keyChar);
     if (note >= 0) {
         heldComputerKeys_.insert(keyChar);

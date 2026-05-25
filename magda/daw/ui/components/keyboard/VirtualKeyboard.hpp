@@ -84,6 +84,7 @@ class VirtualKeyboard : public juce::Component, public juce::KeyListener {
     std::function<void(int pitchBendValue)> onPitchBend;  // -8192 to 8191, 0=center
     std::function<void(bool on)> onSustain;               // sustain pedal toggle
     std::function<void(int velocity)> onVelocityChanged;  // velocity changed via C/V
+    std::function<void(int modValue)> onModWheel;         // 0-127 mod wheel
     std::function<double()> getTransportPosition;
 
   private:
