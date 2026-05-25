@@ -209,12 +209,14 @@ VirtualKeyboardWindow::VirtualKeyboardWindow()
                            DarkTheme::getColour(DarkTheme::PANEL_BACKGROUND),
                            juce::DocumentWindow::closeButton) {
     setContentNonOwned(&content_, false);
-    setSize(700, 160);
+    setSize(700, 180);
     setResizable(true, false);
     setUsingNativeTitleBar(true);
     setAlwaysOnTop(true);
-    centreWithSize(700, 160);
-    content_.onActivated();
+    centreWithSize(700, 180);
+    // Register keyboard as key listener on this window
+    addKeyListener(&content_.getKeyboard());
+    content_.getKeyboard().setWantsKeyboardFocus(true);
 }
 
 }  // namespace magda::daw::ui

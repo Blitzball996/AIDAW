@@ -332,11 +332,28 @@ bool VirtualKeyboard::keyStateChanged(bool /*isKeyDown*/, juce::Component*) {
 }
 
 void VirtualKeyboard::mouseDown(const juce::MouseEvent& e) {
+    auto bounds = getLocalBounds();
+    constexpr int bottomBarH = 24;
+    auto bottomBar = bounds.removeFromBottom(bottomBarH);
+
+    // Check if click is in bottom bar (control buttons)
+    if (e.getPosition().getY() >= bottomBar.getY()) {
+        int x = e.getPosition().getX() - 50;  // offset for left panel
+        if (x >= 0 && x < 24) { setBaseOctave(juce::jmax(0, baseOctave_ - 1)); return; }       // Z
+        if (x >= 74 && x < 98) { setBaseOctave(juce::jmin(8, baseOctave_ + 1)); return; }      // X
+        if (x >= 110 && x < 134) { setVelocity(juce::jmax(1, velocity_ - 14)); if (onVelocityChanged) onVelocityChanged(velocity_); return; }  // C
+        if (x >= 184 && x < 208) { setVelocity(juce::jmin(127, velocity_ + 14)); if (onVelocityChanged) onVelocityChanged(velocity_); return; } // V
+        if (x >= 220 && x < 290) { sustainOn_ = !sustainOn_; if (onSustain) onSustain(sustainOn_); repaint(); return; }  // Tab:Sus
+        return;
+    }
+
+    // Piano key click
     int note = getNoteAtPosition(e.getPosition());
     if (note >= 0) {
         mouseNote_ = note;
         triggerNoteOn(note);
     }
+    grabKeyboardFocus();
 }
 
 void VirtualKeyboard::mouseDrag(const juce::MouseEvent& e) {
