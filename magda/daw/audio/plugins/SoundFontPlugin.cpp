@@ -82,14 +82,17 @@ void SoundFontPlugin::initialise(const te::PluginInitialisationInfo& info) {
     if (soundFont_) {
         tsf_set_output(soundFont_, TSF_STEREO_INTERLEAVED, (int)sampleRate_, 0.0f);
         tsf_reset(soundFont_);
+        applyProgramChange();
     }
 }
 
 void SoundFontPlugin::deinitialise() {}
 
 void SoundFontPlugin::reset() {
-    if (soundFont_)
+    if (soundFont_) {
         tsf_reset(soundFont_);
+        applyProgramChange();
+    }
 }
 
 void SoundFontPlugin::applyToBuffer(const te::PluginRenderContext& rc) {

@@ -1025,6 +1025,42 @@ bool Interpreter::executeAddFx(const Params& params) {
     if (fxName.startsWith("<") && fxName.endsWith(">"))
         fxName = fxName.substring(1, fxName.length() - 1);
 
+    // --- Drum kit shorthand: "drums:N" → SoundFont bank=128, program=N ---
+    if (fxName.startsWith("drums:")) {
+        int program = fxName.fromFirstOccurrenceOf(":", false, false).getIntValue();
+        DeviceInfo device;
+        device.name = "Drums";
+        device.pluginId = "soundfont:128:" + juce::String(program);
+        device.format = PluginFormat::Internal;
+        device.deviceType = DeviceType::Instrument;
+        device.isInstrument = true;
+        auto deviceId = api_.tracks().addDeviceToTrack(ctx_.currentTrackId, device);
+        if (deviceId == INVALID_DEVICE_ID) {
+            ctx_.setError("Failed to add drum kit to track");
+            return false;
+        }
+        ctx_.addResult("Added Drum Kit (program " + juce::String(program) + ")");
+        return true;
+    }
+
+    // --- SoundFont with program: "soundfont:N" → SoundFont program=N ---
+    if (fxName.startsWith("soundfont:")) {
+        int program = fxName.fromFirstOccurrenceOf(":", false, false).getIntValue();
+        DeviceInfo device;
+        device.name = "SoundFont";
+        device.pluginId = "soundfont:" + juce::String(program);
+        device.format = PluginFormat::Internal;
+        device.deviceType = DeviceType::Instrument;
+        device.isInstrument = true;
+        auto deviceId = api_.tracks().addDeviceToTrack(ctx_.currentTrackId, device);
+        if (deviceId == INVALID_DEVICE_ID) {
+            ctx_.setError("Failed to add SoundFont instrument to track");
+            return false;
+        }
+        ctx_.addResult("Added SoundFont (program " + juce::String(program) + ")");
+        return true;
+    }
+
     // --- Internal plugin lookup ---
     // Built-in plugins are listed in internal_plugins.hpp — single canonical
     // alias per plugin, matching the autocomplete dropdown.

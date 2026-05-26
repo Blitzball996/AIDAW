@@ -405,6 +405,8 @@ void MainWindow::setupMenuCallbacks() {
 
     callbacks.onQuit = [this]() { closeButtonPressed(); };
 
+    callbacks.onDownloadContent = [this]() { showDownloadContentDialog(); };
+
     // Edit menu callbacks
     callbacks.onUndo = []() { UndoManager::getInstance().undo(); };
 
@@ -804,6 +806,81 @@ void MainWindow::setupMenuCallbacks() {
 
     // Initialize the menu manager with callbacks
     MenuManager::getInstance().initialize(callbacks);
+}
+
+void MainWindow::showDownloadContentDialog() {
+    auto* dialog = new juce::AlertWindow("Download Extra Content",
+        "Select content packs to download.\n"
+        "Files will be saved next to the application.",
+        juce::AlertWindow::InfoIcon);
+
+    dialog->addComboBox("pack", {
+        "FluidR3 GM SoundFont (141MB) - High-quality piano/strings/brass/drums",
+        "Yamaha DX7 ROM 1A (18MB) - Classic FM synth patches",
+        "Salamander Drum Kit (200MB) - Acoustic drum samples (SFZ)",
+        "Sonatina Symphonic Orchestra (1.4GB) - Full orchestra (SFZ)"
+    }, "Content Pack:");
+
+    dialog->addButton("Download", 1);
+    dialog->addButton("Cancel", 0);
+
+    dialog->enterModalState(true, juce::ModalCallbackFunction::create(
+        [dialog](int result) {
+            if (result == 1) {
+                int selection = dialog->getComboBoxComponent("pack")->getSelectedItemIndex();
+                juce::String url;
+                juce::String filename;
+
+                switch (selection) {
+                    case 0:
+                        url = "https://archive.org/download/fluidr3-gm-gs/FluidR3_GM.sf2";
+                        filename = "soundfonts/FluidR3_GM.sf2";
+                        break;
+                    case 1:
+                        url = "https://github.com/Caskexe/DX/raw/main/DX7/Factory%20ROM/Yamaha%20DX7%20ROM%201A.sf2";
+                        filename = "soundfonts/Yamaha_DX7_ROM1A.sf2";
+                        break;
+                    case 2:
+                        url = "https://freepats.zenvoid.org/Percussion/Drumkits/salamander-drumkit-v1.tar.bz2";
+                        filename = "sfz/drums/salamander-drumkit-v1.tar.bz2";
+                        break;
+                    case 3:
+                        url = "https://archive.org/download/SonatinaSymphonicOrchestra/Sonatina_Symphonic_Orchestra.zip";
+                        filename = "sfz/orchestra/SSO.zip";
+                        break;
+                }
+
+                if (url.isNotEmpty()) {
+                    auto exeDir = juce::File::getSpecialLocation(
+                        juce::File::currentExecutableFile).getParentDirectory();
+                    auto destFile = exeDir.getChildFile(filename);
+                    destFile.getParentDirectory().createDirectory();
+
+                    // Launch download in background
+                    auto urlObj = juce::URL(url);
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::InfoIcon,
+                        "Download Started",
+                        "Downloading to:\n" + destFile.getFullPathName() +
+                        "\n\nThis may take a while depending on file size.\n"
+                        "The file will be available after restart.");
+
+                    // Use JUCE's URL download
+                    std::thread([urlObj, destFile]() {
+                        auto stream = urlObj.createInputStream(
+                            juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                                .withConnectionTimeoutMs(30000));
+                        if (stream) {
+                            juce::FileOutputStream fos(destFile);
+                            if (fos.openedOk()) {
+                                fos.writeFromInputStream(*stream, -1);
+                            }
+                        }
+                    }).detach();
+                }
+            }
+            delete dialog;
+        }), true);
 }
 
 }  // namespace magda

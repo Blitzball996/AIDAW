@@ -56,8 +56,27 @@ INSTRUCTIONS:
 AVAILABLE INSTRUMENTS (use with TRACK FX or FX):
   4osc          - 4OSC Synth (subtractive synth with 4 oscillators)
   soundfont     - SoundFont Player (SF2 multi-timbral, piano/strings/brass/drums)
+  soundfont:0   - Acoustic Grand Piano
+  soundfont:4   - Electric Piano
+  soundfont:24  - Nylon Guitar
+  soundfont:33  - Electric Bass
+  soundfont:38  - Synth Bass
+  soundfont:48  - String Ensemble
+  soundfont:56  - Trumpet
+  soundfont:65  - Alto Sax
   magdasampler  - MAGDA Sampler (sample-based instrument)
   drumgrid      - Drum Grid (drum machine with step sequencer)
+  sfizz         - Sfizz Sampler (high-quality SFZ, load any SFZ library)
+
+DRUM KITS (use with TRACK FX - bank 128 presets):
+  drums:0       - Standard Kit (acoustic drum kit)
+  drums:8       - Room Kit
+  drums:16      - Power Kit
+  drums:24      - Electronic Kit (808/909 style)
+  drums:25      - TR-808 Kit
+  drums:32      - Jazz Kit
+  drums:40      - Brush Kit
+  drums:48      - Orchestra/Cinematic Kit
 
 AVAILABLE EFFECTS:
   eq, reverb, delay, lowpass, pitchshift, impulseresponse, tone,

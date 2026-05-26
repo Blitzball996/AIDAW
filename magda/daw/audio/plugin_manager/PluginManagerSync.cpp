@@ -1569,11 +1569,21 @@ te::Plugin::Ptr PluginManager::createPluginOnly(TrackId trackId, const DeviceInf
             if (internalSpec->canCreateDetached)
                 plugin = daw::audio::createInternalPluginFromSpec(*internalSpec, edit_, ps);
 
-            // SoundFont: parse program number from "soundfont:N" pluginId
+            // SoundFont: parse program/bank from "soundfont:N" or "soundfont:BANK:N"
             if (plugin && internalSpec->kind == InternalDeviceKind::SoundFont &&
                 device.pluginId.contains(":")) {
-                int program = device.pluginId.fromLastOccurrenceOf(":", false, false).getIntValue();
-                plugin->state.setProperty(juce::Identifier("program"), program, nullptr);
+                auto parts = juce::StringArray::fromTokens(device.pluginId, ":", "");
+                if (parts.size() == 3) {
+                    // soundfont:BANK:PROGRAM
+                    int bank = parts[1].getIntValue();
+                    int program = parts[2].getIntValue();
+                    plugin->state.setProperty(juce::Identifier("bank"), bank, nullptr);
+                    plugin->state.setProperty(juce::Identifier("program"), program, nullptr);
+                } else {
+                    // soundfont:PROGRAM
+                    int program = device.pluginId.fromLastOccurrenceOf(":", false, false).getIntValue();
+                    plugin->state.setProperty(juce::Identifier("program"), program, nullptr);
+                }
             }
 
             // DrumGrid stores its inner chain state in pluginState as XML;
@@ -1755,11 +1765,21 @@ te::Plugin::Ptr PluginManager::loadDeviceAsPlugin(TrackId trackId, const DeviceI
                     track->pluginList.insertPlugin(plugin, insertIndex, nullptr);
             }
 
-            // SoundFont: parse program number from "soundfont:N" pluginId
+            // SoundFont: parse program/bank from "soundfont:N" or "soundfont:BANK:N"
             if (plugin && internalSpec->kind == InternalDeviceKind::SoundFont &&
                 device.pluginId.contains(":")) {
-                int program = device.pluginId.fromLastOccurrenceOf(":", false, false).getIntValue();
-                plugin->state.setProperty(juce::Identifier("program"), program, nullptr);
+                auto parts = juce::StringArray::fromTokens(device.pluginId, ":", "");
+                if (parts.size() == 3) {
+                    // soundfont:BANK:PROGRAM
+                    int bank = parts[1].getIntValue();
+                    int program = parts[2].getIntValue();
+                    plugin->state.setProperty(juce::Identifier("bank"), bank, nullptr);
+                    plugin->state.setProperty(juce::Identifier("program"), program, nullptr);
+                } else {
+                    // soundfont:PROGRAM
+                    int program = device.pluginId.fromLastOccurrenceOf(":", false, false).getIntValue();
+                    plugin->state.setProperty(juce::Identifier("program"), program, nullptr);
+                }
             }
 
             if (plugin && internalSpec->kind == InternalDeviceKind::DrumGrid) {

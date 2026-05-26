@@ -388,9 +388,11 @@ void MainWindow::performExport(const ExportAudioDialog::Settings& settings,
             // edit.restartPlayback() from recreating the playback context during render.
             auto* progressWindow = new ExportProgressWindow(
                 params, file, transport,
-                [audioBridge]() {
+                [audioBridge, edit]() {
                     if (audioBridge)
                         audioBridge->getPluginManager().restoreAfterRendering();
+                    if (edit)
+                        edit->getTransport().ensureContextAllocated();
                 },
                 actualPreroll, settings.leadInSilence);
             progressWindow->launchThread();

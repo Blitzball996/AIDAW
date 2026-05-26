@@ -73,6 +73,9 @@ class MainWindow : public juce::DocumentWindow, public ProjectManagerListener {
     juce::String getFileExtensionForFormat(const juce::String& format) const;
     int getBitDepthForFormat(const juce::String& format) const;
 
+    // Download content
+    void showDownloadContentDialog();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
 };
 
