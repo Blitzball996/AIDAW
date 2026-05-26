@@ -24,6 +24,13 @@ jobs:
           curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
             -o assets/soundfonts/GeneralUser_GS.sf2
 
+      - name: Restore Faust build directory
+        run: |
+          # Faust's build/CMakeLists.txt is excluded by faust's .gitignore
+          # but it's a source file needed for CMake. Restore it via git.
+          cd third_party/faust
+          git checkout -- build/
+
       - name: Configure CMake
         run: |
           cmake -B build -G Ninja \
