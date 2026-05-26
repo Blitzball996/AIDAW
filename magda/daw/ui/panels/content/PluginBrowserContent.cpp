@@ -434,6 +434,12 @@ std::vector<PluginBrowserInfo> PluginBrowserContent::getInternalPlugins() {
         list.push_back(
             PluginBrowserInfo::createInternal(juce::String(dk.name), pluginId, true, "Drums"));
     }
+
+    // 808/Trap Bass presets (using GM Synth Bass with low octave)
+    list.push_back(
+        PluginBrowserInfo::createInternal("808 Sub Bass", "soundfont:38", true, "Bass"));
+    list.push_back(
+        PluginBrowserInfo::createInternal("808 Synth Bass", "soundfont:39", true, "Bass"));
     list.push_back(PluginBrowserInfo::createInternal(audio::MidiChordEnginePlugin::getPluginName(),
                                                      audio::MidiChordEnginePlugin::xmlTypeName,
                                                      false, "MIDI"));

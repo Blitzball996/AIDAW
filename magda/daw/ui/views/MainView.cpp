@@ -992,7 +992,14 @@ bool MainView::keyPressed(const juce::KeyPress& key) {
     }
 
     // Check for 'L' to create loop from time selection or selected clip
+    // Skip if QWERTY keyboard is active (L is mapped to a note)
     if (key == juce::KeyPress('l') || key == juce::KeyPress('L')) {
+        if (audioEngine_) {
+            if (auto* bridge = audioEngine_->getAudioBridge()) {
+                if (bridge->getQwertyMidiDevice() && bridge->getQwertyMidiDevice()->isEnabled())
+                    return false;
+            }
+        }
         if (timelineController->getState().selection.isActive()) {
             timelineController->dispatch(CreateLoopFromSelectionEvent{});
         } else {
