@@ -422,6 +422,18 @@ std::vector<PluginBrowserInfo> PluginBrowserContent::getInternalPlugins() {
         list.push_back(
             PluginBrowserInfo::createInternal(juce::String(gm.name), pluginId, true, gm.category));
     }
+
+    // GM Drum Kits (bank 128)
+    static const struct { const char* name; int program; } kDrumKits[] = {
+        {"Standard Kit", 0}, {"Room Kit", 8}, {"Power Kit", 16},
+        {"Electronic Kit", 24}, {"TR-808 Kit", 25}, {"Jazz Kit", 32},
+        {"Brush Kit", 40}, {"Orchestra Kit", 48},
+    };
+    for (const auto& dk : kDrumKits) {
+        auto pluginId = juce::String("soundfont:128:") + juce::String(dk.program);
+        list.push_back(
+            PluginBrowserInfo::createInternal(juce::String(dk.name), pluginId, true, "Drums"));
+    }
     list.push_back(PluginBrowserInfo::createInternal(audio::MidiChordEnginePlugin::getPluginName(),
                                                      audio::MidiChordEnginePlugin::xmlTypeName,
                                                      false, "MIDI"));
