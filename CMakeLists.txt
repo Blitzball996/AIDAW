@@ -141,7 +141,19 @@ set(SFIZZ_DEMOS OFF CACHE BOOL "" FORCE)
 set(SFIZZ_DEVTOOLS OFF CACHE BOOL "" FORCE)
 set(SFIZZ_SHARED OFF CACHE BOOL "" FORCE)
 set(ENABLE_LTO OFF CACHE BOOL "" FORCE)
+# Force dynamic CRT globally for sfizz and all its dependencies (abseil, etc.)
+set(_SAVED_MSVC_RUNTIME ${CMAKE_MSVC_RUNTIME_LIBRARY})
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+set(ABSL_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/sfizz EXCLUDE_FROM_ALL)
+set(CMAKE_MSVC_RUNTIME_LIBRARY ${_SAVED_MSVC_RUNTIME})
+# Force /MD on all sfizz-related targets
+if(MSVC)
+    get_property(_sfizz_targets DIRECTORY third_party/sfizz PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_target ${_sfizz_targets})
+        set_property(TARGET ${_target} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endforeach()
+endif()
 
 # Faust — runtime DSP compilation. Free tier uses the interpreter backend (no
 # LLVM, smaller binary, ~5–10× slower DSP execution); pro tier (later) flips
