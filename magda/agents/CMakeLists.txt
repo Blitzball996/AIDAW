@@ -56,6 +56,8 @@ dsl_grammar.hpp
     device_ai_agent.hpp
     sound_design_agent.hpp
     sound_design_agent.cpp
+    strudel_agent.hpp
+    strudel_agent.cpp
     coder_agent.hpp
     coder_agent.cpp
     mcp/MCPClient.hpp
