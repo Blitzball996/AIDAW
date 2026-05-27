@@ -3,6 +3,7 @@
 #include "Envelope.h"
 #include "Filter.h"
 #include "Effects.h"
+#include "AdvancedEffects.h"
 #include "FMSynth.h"
 #include <cmath>
 
@@ -117,6 +118,9 @@ struct SynthVoice {
     }
 };
 
+// Synth mode selection
+enum class SynthMode { Subtractive, FM, SuperSaw, Drum };
+
 // Full synth engine with polyphony and global effects
 class SynthEngine {
   public:
@@ -126,8 +130,20 @@ class SynthEngine {
         sampleRate_ = sampleRate;
         delay_.init(sampleRate, 2.0f);
         reverb_.init(sampleRate);
+        chorus_.init(sampleRate);
+        for (auto& fm : fmVoices_) fm.init(sampleRate);
+        kick_.init(sampleRate);
+        snare_.init(sampleRate);
+        hihat_.init(sampleRate);
+        tom_.init(sampleRate);
+        clap_.init(sampleRate);
     }
 
+    // Mode
+    void setMode(SynthMode m) { mode_ = m; }
+    SynthMode getMode() const { return mode_; }
+
+    // Subtractive params
     void setWaveform(Oscillator::Waveform w) { waveform_ = w; }
     void setCutoff(float f) { cutoff_ = f; }
     void setResonance(float q) { resonance_ = q; }
@@ -136,16 +152,51 @@ class SynthEngine {
     void setDecay(float d) { decay_ = d; }
     void setSustain(float s) { sustain_ = s; }
     void setRelease(float r) { release_ = r; }
+    void setUseSupersaw(bool s) { useSupersaw_ = s; }
+
+    // FM params
+    void setFMAlgorithm(FMAlgorithm a) { fmAlgo_ = a; }
+
+    // Effects
     void setDelayMix(float m) { delay_.setMix(m); }
     void setDelayTime(float t) { delay_.setTime(t); }
     void setDelayFeedback(float f) { delay_.setFeedback(f); }
     void setReverbMix(float m) { reverb_.setMix(m); }
     void setReverbSize(float s) { reverb_.setRoomSize(s); }
     void setDistortion(float d) { distDrive_ = d; }
-    void setUseSupersaw(bool s) { useSupersaw_ = s; }
+    void setChorusMix(float m) { chorusMix_ = m; }
+    void setPhaserRate(float r) { phaserRate_ = r; }
 
     void noteOn(int note, float velocity, double startCycle, double durCycles) {
-        // Find free voice or steal oldest
+        if (mode_ == SynthMode::Drum) {
+            triggerDrum(note, velocity);
+            return;
+        }
+
+        if (mode_ == SynthMode::FM) {
+            // Find free FM voice
+            for (auto& fm : fmVoices_) {
+                if (!fm.isActive()) {
+                    fm.setAlgorithm(fmAlgo_);
+                    float freq = 440.0f * std::pow(2.0f, (note - 69) / 12.0f);
+                    fm.trigger(freq);
+                    // Store metadata for release
+                    for (auto& meta : fmMeta_) {
+                        if (!meta.active) {
+                            meta.active = true;
+                            meta.startTime = startCycle;
+                            meta.duration = durCycles;
+                            meta.fmIdx = (int)(&fm - fmVoices_);
+                            break;
+                        }
+                    }
+                    return;
+                }
+            }
+            return;
+        }
+
+        // Subtractive / SuperSaw
         SynthVoice* voice = nullptr;
         for (auto& v : voices_) {
             if (!v.active) { voice = &v; break; }
@@ -157,7 +208,7 @@ class SynthEngine {
         }
 
         voice->waveform = waveform_;
-        voice->useSupersaw = useSupersaw_;
+        voice->useSupersaw = (mode_ == SynthMode::SuperSaw) || useSupersaw_;
         voice->cutoff = cutoff_;
         voice->resonance = resonance_;
         voice->filterEnvDepth = filterEnvDepth_;
@@ -173,40 +224,104 @@ class SynthEngine {
                     v.noteOff();
             }
         }
+        // Release FM voices
+        for (auto& meta : fmMeta_) {
+            if (meta.active && currentCycle - meta.startTime > meta.duration) {
+                fmVoices_[meta.fmIdx].releaseNote();
+                meta.active = false;
+            }
+        }
     }
 
     float render() {
         float sum = 0.0f;
+
+        // Subtractive voices
         for (auto& v : voices_) {
             if (v.active)
                 sum += v.render(sampleRate_);
         }
 
-        // Global effects
+        // FM voices
+        for (auto& fm : fmVoices_) {
+            if (fm.isActive())
+                sum += fm.render() * 0.3f;
+        }
+
+        // Drum voices
+        sum += kick_.render();
+        sum += snare_.render();
+        sum += hihat_.render();
+        sum += tom_.render();
+        sum += clap_.render();
+
+        // Effects chain
         if (distDrive_ > 1.0f) {
             dist_.setDrive(distDrive_);
             sum = dist_.process(sum);
         }
+        if (chorusMix_ > 0.0f) {
+            chorus_.setMix(chorusMix_);
+            sum = chorus_.process(sum);
+        }
+        if (phaserRate_ > 0.0f) {
+            phaser_.setRate(phaserRate_);
+            sum = phaser_.process(sum, sampleRate_);
+        }
         sum = delay_.process(sum);
         sum = reverb_.process(sum);
 
-        return std::tanh(sum);  // Final soft clip
+        return std::tanh(sum);
     }
 
     void reset() {
         for (auto& v : voices_) v.active = false;
+        for (auto& fm : fmVoices_) fm.reset();
+        for (auto& m : fmMeta_) m.active = false;
+        kick_.reset(); snare_.reset(); hihat_.reset(); tom_.reset(); clap_.reset();
         delay_.reset();
         reverb_.reset();
+        chorus_.reset();
     }
 
   private:
+    void triggerDrum(int note, float velocity) {
+        // GM drum map
+        switch (note) {
+            case 36: case 35: kick_.trigger(); break;
+            case 38: case 40: snare_.trigger(); break;
+            case 42: case 44: hihat_.trigger(); break;
+            case 46: hihat_.trigger(); break;  // open hat
+            case 45: case 47: case 48: tom_.trigger(); break;
+            case 39: clap_.trigger(); break;
+            default: kick_.trigger(); break;
+        }
+    }
+
+    // Voices
     SynthVoice voices_[kMaxVoices];
+    FMSynth fmVoices_[4];
+    struct FMMeta { bool active = false; double startTime = 0; double duration = 0; int fmIdx = 0; };
+    FMMeta fmMeta_[4];
+
+    // Drums
+    KickDrum kick_;
+    SnareDrum snare_;
+    HiHat hihat_;
+    TomDrum tom_;
+    ClapDrum clap_;
+
+    // Effects
     Delay delay_;
     Reverb reverb_;
     Distortion dist_;
+    Chorus chorus_;
+    Phaser phaser_;
+
     float sampleRate_ = 44100.0f;
 
-    // Current settings
+    // Settings
+    SynthMode mode_ = SynthMode::Subtractive;
     Oscillator::Waveform waveform_ = Oscillator::Saw;
     bool useSupersaw_ = false;
     float cutoff_ = 8000.0f;
@@ -217,6 +332,9 @@ class SynthEngine {
     float sustain_ = 0.7f;
     float release_ = 0.2f;
     float distDrive_ = 1.0f;
+    float chorusMix_ = 0.0f;
+    float phaserRate_ = 0.0f;
+    FMAlgorithm fmAlgo_ = FMAlgorithm::Serial;
 };
 
 }  // namespace magda::daw::audio::tidal
