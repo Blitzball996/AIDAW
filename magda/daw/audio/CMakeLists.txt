@@ -214,6 +214,7 @@ add_custom_target(magda_compiled_dsps
 )
 add_dependencies(magda_daw magda_compiled_dsps)
 target_include_directories(magda_daw PRIVATE "${CMAKE_BINARY_DIR}/compiled_dsps")
+target_include_directories(magda_daw PRIVATE "${CMAKE_SOURCE_DIR}/third_party/tracktion_engine/modules/3rd_party")
 
 target_sources(magda_daw PRIVATE
     plugins/compiled/MagdaFilterCompiledPlugin.cpp
@@ -347,6 +348,7 @@ target_sources(magda_daw PRIVATE
     plugins/FaustParamInfo.cpp
     plugins/SoundFontPlugin.cpp
     plugins/SfizzPlugin.cpp
+    plugins/StrudelPlugin.cpp
     transport/StepClock.cpp
     plugins/StepSequencerPlugin.cpp
     # Controller routing (issue #1050 -- Phase C)
@@ -396,6 +398,7 @@ target_sources(magda_daw PRIVATE
     plugins/FaustParamInfo.hpp
     plugins/SoundFontPlugin.hpp
     plugins/SfizzPlugin.hpp
+    plugins/StrudelPlugin.hpp
     transport/StepClock.hpp
     plugins/StepSequencerPlugin.hpp
 )

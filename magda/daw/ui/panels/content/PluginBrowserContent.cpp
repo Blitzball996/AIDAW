@@ -12,6 +12,7 @@
 #include "audio/plugins/MagdaSamplerPlugin.hpp"
 #include "audio/plugins/MidiChordEnginePlugin.hpp"
 #include "audio/plugins/SoundFontPlugin.hpp"
+#include "audio/plugins/StrudelPlugin.hpp"
 #include "audio/plugins/StepSequencerPlugin.hpp"
 #include "audio/plugins/compiled/CompiledPluginRegistry.hpp"
 #include "core/AppPaths.hpp"
@@ -372,6 +373,9 @@ std::vector<PluginBrowserInfo> PluginBrowserContent::getInternalPlugins() {
                                                      audio::DrumGridPlugin::xmlTypeName, true));
     list.push_back(PluginBrowserInfo::createInternal(audio::SoundFontPlugin::getPluginName(),
                                                      audio::SoundFontPlugin::xmlTypeName, true,
+                                                     "Synth"));
+    list.push_back(PluginBrowserInfo::createInternal("Tidal",
+                                                     audio::StrudelPlugin::xmlTypeName, true,
                                                      "Synth"));
     // GM instrument presets shown as individual entries under their categories
     static const struct {

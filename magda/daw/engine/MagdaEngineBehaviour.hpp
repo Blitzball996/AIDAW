@@ -12,6 +12,7 @@
 #include "../audio/plugins/SidechainMonitorPlugin.hpp"
 #include "../audio/plugins/SoundFontPlugin.hpp"
 #include "../audio/plugins/StepSequencerPlugin.hpp"
+#include "../audio/plugins/StrudelPlugin.hpp"
 #include "../audio/plugins/compiled/CompiledPluginRegistry.hpp"
 #include "../audio/session/SessionMonitorPlugin.hpp"
 #include "../project/ProjectManager.hpp"
@@ -123,6 +124,9 @@ class MagdaEngineBehaviour : public tracktion::EngineBehaviour {
         }
         if (type == daw::audio::StepSequencerPlugin::xmlTypeName) {
             return new daw::audio::StepSequencerPlugin(info);
+        }
+        if (type == daw::audio::StrudelPlugin::xmlTypeName) {
+            return new daw::audio::StrudelPlugin(info);
         }
         if (type == daw::audio::InstrumentMeterTapPlugin::xmlTypeName) {
             return new daw::audio::InstrumentMeterTapPlugin(info);

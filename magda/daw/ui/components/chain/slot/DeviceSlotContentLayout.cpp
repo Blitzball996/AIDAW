@@ -74,7 +74,8 @@ void showExpandedHeaderControls(const DeviceSlotTraits& traits, const magda::Dev
     setVisibleIfPresent(controls.macroButton, drum_grid_slot::shouldShowMacroButton(
                                                   traits.isDrumGrid, device.deviceType,
                                                   traits.isArpeggiator, traits.isStepSequencer));
-    setVisibleIfPresent(controls.uiButton, !internalDevice);
+    setVisibleIfPresent(controls.uiButton,
+                        !internalDevice || device.isInstrument);
     setVisibleIfPresent(controls.powerButton, true);
     setVisibleIfPresent(controls.gainLabel, !isMidiUtility(traits));
 }

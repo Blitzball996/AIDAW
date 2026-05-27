@@ -623,3 +623,21 @@ else()
         COMMENT "Copying SoundFont files alongside app executable"
     )
 endif()
+
+# Copy Strudel JS runtime next to the executable
+set(MAGDA_STRUDEL_SRC "${CMAKE_SOURCE_DIR}/magda/daw/audio/plugins/strudel")
+if(APPLE)
+    add_custom_command(TARGET magda_daw_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${MAGDA_STRUDEL_SRC}"
+            "$<TARGET_BUNDLE_CONTENT_DIR:magda_daw_app>/Resources/strudel"
+        COMMENT "Copying Strudel JS runtime to app bundle Resources"
+    )
+else()
+    add_custom_command(TARGET magda_daw_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${MAGDA_STRUDEL_SRC}"
+            "$<TARGET_FILE_DIR:magda_daw_app>/strudel"
+        COMMENT "Copying Strudel JS runtime alongside app executable"
+    )
+endif()

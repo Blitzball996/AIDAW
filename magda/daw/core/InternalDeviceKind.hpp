@@ -53,6 +53,8 @@ enum class InternalDeviceKind {
     SoundFont,
     // --- Sfizz -----------------------------------------------------------
     Sfizz,
+    // --- Strudel ----------------------------------------------------------
+    Strudel,
     // --- Faust ---------------------------------------------------------
     Faust,  // interpreter-based, runs arbitrary user .dsp
 };

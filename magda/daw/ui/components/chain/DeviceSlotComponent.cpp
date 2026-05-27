@@ -8,6 +8,7 @@
 #include "audio/AudioBridge.hpp"
 #include "audio/plugin_manager/PluginManager.hpp"
 #include "audio/plugins/MagdaSamplerPlugin.hpp"
+#include "audio/plugins/StrudelPlugin.hpp"
 #include "core/Config.hpp"
 #include "core/InternalDeviceKind.hpp"
 #include "core/MacroInfo.hpp"
@@ -1907,10 +1908,33 @@ void DeviceSlotComponent::showMultiOutMenu() {
 // =============================================================================
 
 void DeviceSlotComponent::showContextMenu() {
+    juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+        .getChildFile("strudel_debug.txt")
+        .replaceWithText("showContextMenu called, pluginId=" + device_.pluginId + "\r\n");
+
     juce::PopupMenu menu;
     auto& selection = magda::SelectionManager::getInstance();
     const bool hasMultiSelection =
         selection.isChainNodeSelected(nodePath_) && selection.getSelectedChainNodes().size() > 1;
+
+    // Strudel/Tidal: handle "Open Editor" synchronously to avoid SafePointer issues
+    if (device_.pluginId.contains("strudel")) {
+        juce::PopupMenu strudelMenu;
+        strudelMenu.addItem(1, "Open Editor");
+        strudelMenu.addSeparator();
+        strudelMenu.addItem(2, "Delete");
+        int result = strudelMenu.show();
+
+        juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+            .getChildFile("strudel_debug.txt")
+            .replaceWithText("menu result=" + juce::String(result) + "\r\n");
+
+        if (result == 1) {
+            openStrudelEditor();
+        }
+        return;
+    }
+
     menu.addItem(1, hasMultiSelection ? "Add Selection to New Rack" : "Add to New Rack");
 
     // Classification override — let user correct mis-classified plugins
@@ -1946,7 +1970,11 @@ void DeviceSlotComponent::showContextMenu() {
         if (safeThis == nullptr || result == 0)
             return;
 
-        if (result == 1) {
+        if (result == 300) {
+            // Open Strudel editor
+            if (safeThis)
+                safeThis->openStrudelEditor();
+        } else if (result == 1) {
             // Add to New Rack
             magda::UndoManager::getInstance().executeCommand(
                 std::make_unique<magda::WrapChainElementsInRackCommand>(selectedPaths));
@@ -2643,6 +2671,77 @@ void DeviceSlotComponent::updateScButtonState() {
                              DarkTheme::getColour(DarkTheme::SURFACE));
         scButton_->setColour(juce::TextButton::textColourOffId,
                              DarkTheme::getSecondaryTextColour());
+    }
+}
+
+void DeviceSlotComponent::mouseDoubleClick(const juce::MouseEvent&) {
+    if (device_.pluginId.contains("strudel")) {
+        openStrudelEditor();
+    }
+}
+
+namespace {
+struct ClosableWindow : public juce::DocumentWindow {
+    ClosableWindow(const juce::String& name, juce::Colour bg, int buttons)
+        : DocumentWindow(name, bg, buttons) {}
+    void closeButtonPressed() override { setVisible(false); }
+};
+}  // namespace
+
+void DeviceSlotComponent::openStrudelEditor() {
+    auto* audioEngine = magda::TrackManager::getInstance().getAudioEngine();
+    if (!audioEngine) return;
+    auto* wrapper = dynamic_cast<magda::TracktionEngineWrapper*>(audioEngine);
+    if (!wrapper) return;
+    auto* edit = wrapper->getEdit();
+    if (!edit) return;
+
+    // Find or create StrudelPlugin on the Tidal track
+    magda::daw::audio::StrudelPlugin* strudel = nullptr;
+
+    for (auto track : te::getAudioTracks(*edit)) {
+        for (auto plugin : track->pluginList) {
+            if (auto* s = dynamic_cast<magda::daw::audio::StrudelPlugin*>(plugin))
+                strudel = s;
+        }
+    }
+
+    // If not found, create it on the first track named "Tidal"
+    if (!strudel) {
+        for (auto track : te::getAudioTracks(*edit)) {
+            if (track->getName() == "Tidal") {
+                juce::ValueTree pluginState(te::IDs::PLUGIN);
+                pluginState.setProperty(te::IDs::type,
+                    magda::daw::audio::StrudelPlugin::xmlTypeName, nullptr);
+                auto plugin = edit->getPluginCache().createNewPlugin(pluginState);
+                if (plugin) {
+                    track->pluginList.insertPlugin(plugin, 0, nullptr);
+                    strudel = dynamic_cast<magda::daw::audio::StrudelPlugin*>(plugin.get());
+                }
+                break;
+            }
+        }
+    }
+
+    if (!strudel) return;
+
+    if (!strudelWindow_) {
+        auto editor = strudel->createEditor();
+        if (editor) {
+            strudelWindow_ = std::make_unique<ClosableWindow>(
+                "Tidal", juce::Colour(0xff1e1e2e),
+                juce::DocumentWindow::allButtons);
+            strudelWindow_->setContentOwned(editor.release(), true);
+            strudelWindow_->setUsingNativeTitleBar(false);
+            strudelWindow_->setTitleBarHeight(28);
+            strudelWindow_->setResizable(true, false);
+            strudelWindow_->centreWithSize(680, 440);
+            strudelWindow_->setAlwaysOnTop(true);
+            strudelWindow_->setVisible(true);
+        }
+    } else {
+        strudelWindow_->setVisible(true);
+        strudelWindow_->toFront(true);
     }
 }
 

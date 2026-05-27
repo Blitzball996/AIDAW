@@ -100,6 +100,7 @@ inline const std::vector<InternalPluginInfo>& getInternalPlugins() {
         {"Drum Grid", "drumgrid", DeviceType::Instrument, InternalPlugin::DrumGrid, V::Magda},
         {"SoundFont Player", "soundfont", DeviceType::Instrument, InternalPlugin::None, V::Magda},
         {"Sfizz Sampler", "sfizz", DeviceType::Instrument, InternalPlugin::None, V::Magda},
+        {"Tidal", "strudel", DeviceType::Instrument, InternalPlugin::None, V::Magda},
         // MIDI processors (MAGDA-native)
         {"Arpeggiator", "arpeggiator", DeviceType::Effect, InternalPlugin::Arpeggiator, V::Magda},
         {"Chord Engine", "midichordengine", DeviceType::Effect, InternalPlugin::MidiChordEngine,

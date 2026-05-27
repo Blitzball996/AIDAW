@@ -12,6 +12,7 @@
 #include "plugins/SidechainMonitorPlugin.hpp"
 #include "plugins/SoundFontPlugin.hpp"
 #include "plugins/StepSequencerPlugin.hpp"
+#include "plugins/StrudelPlugin.hpp"
 #include "processors/DeviceProcessor.hpp"
 #include "processors/internal/MidiDeviceProcessors.hpp"
 #include "processors/internal/NativeDeviceProcessors.hpp"
@@ -130,6 +131,10 @@ const InternalPluginSpec kSpecs[] = {
     {InternalDeviceKind::Sfizz, SfizzPlugin::xmlTypeName, "Sfizz Sampler", "Sampler",
      "High-quality SFZ sampler with sinc interpolation. Load any SFZ instrument library.",
      InternalPluginCreateMode::FreshValueTree, true, true, nullptr, 0, matches<SfizzPlugin>,
+     nullptr},
+    {InternalDeviceKind::Strudel, StrudelPlugin::xmlTypeName, "Tidal", "Synth",
+     "Live coding pattern synth. Write TidalCycles patterns to generate MIDI.",
+     InternalPluginCreateMode::FreshValueTree, true, true, nullptr, 0, matches<StrudelPlugin>,
      nullptr},
     {InternalDeviceKind::MidiReceive, ::magda::MidiReceivePlugin::xmlTypeName, "MIDI Receive",
      "MIDI", "Internal MIDI routing endpoint used by MAGDA track and device routing.",

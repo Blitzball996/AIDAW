@@ -310,6 +310,11 @@ class DeviceSlotComponent : public NodeComponent,
     int getVisibleParamCount() const;
     int getDynamicSlotWidth() const;
 
+    std::unique_ptr<juce::DocumentWindow> strudelWindow_;
+    void openStrudelEditor();
+
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeviceSlotComponent)
 };
 

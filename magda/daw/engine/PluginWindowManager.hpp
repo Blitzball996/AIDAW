@@ -106,6 +106,10 @@ class PluginWindowManager : public juce::Timer {
         bool wasOpen = false;
     };
     std::unordered_map<DeviceId, WindowInfo> trackedWindows_;
+
+    // Internal plugin editor windows (for plugins that implement createEditor())
+    std::unordered_map<DeviceId, std::unique_ptr<juce::DocumentWindow>> internalEditorWindows_;
+
     mutable juce::CriticalSection windowLock_;
 
     // Shutdown flag to prevent timer operations during cleanup

@@ -66,7 +66,45 @@ void PluginWindowManager::showPluginWindow(DeviceId deviceId, const te::Plugin::
             DBG("  -> Plugin has no windowState: " << extPlugin->getName());
         }
     } else {
-        DBG("  -> Plugin is not external, no window to show: " << plugin->getName());
+        // Internal plugin with createEditor() support.
+        // For RackInstance (instrument wrappers), look inside the Rack for the actual plugin.
+        te::Plugin::Ptr editorPlugin = plugin;
+        if (auto* rackInstance = dynamic_cast<te::RackInstance*>(plugin.get())) {
+            if (auto rackType = rackInstance->type.get()) {
+                for (auto* rp : rackType->getPlugins()) {
+                    if (rp->createEditor() != nullptr) {
+                        editorPlugin = rp;
+                        break;
+                    }
+                }
+            }
+        }
+
+        auto editor = editorPlugin->createEditor();
+        if (editor) {
+            DBG("  -> Creating internal editor window for: " << editorPlugin->getName());
+            auto window = std::make_unique<juce::DocumentWindow>(
+                editorPlugin->getName(), juce::Colour(0xff1e1e2e),
+                juce::DocumentWindow::allButtons);
+            window->setContentOwned(editor.release(), true);
+            window->setUsingNativeTitleBar(false);
+            window->setTitleBarHeight(28);
+            window->setResizable(true, false);
+            window->centreWithSize(680, 440);
+            window->setAlwaysOnTop(true);
+            window->setVisible(true);
+
+            {
+                juce::ScopedLock lock(windowLock_);
+                internalEditorWindows_[deviceId] = std::move(window);
+                trackedWindows_[deviceId] = {plugin, true};
+            }
+
+            if (onWindowStateChanged)
+                onWindowStateChanged(deviceId, true);
+        } else {
+            DBG("  -> Plugin has no editor: " << plugin->getName());
+        }
     }
 }
 
@@ -83,11 +121,8 @@ void PluginWindowManager::hidePluginWindow(DeviceId deviceId, const te::Plugin::
         if (extPlugin->windowState) {
             DBG("PluginWindowManager::hidePluginWindow - closing window for: "
                 << extPlugin->getName());
-            // Use Tracktion's API to properly close the window.
-            // This is safe now that we use JUCE's title bar (not native macOS).
             extPlugin->windowState->closeWindowExplicitly();
 
-            // Update tracking
             {
                 juce::ScopedLock lock(windowLock_);
                 auto it = trackedWindows_.find(deviceId);
@@ -100,6 +135,19 @@ void PluginWindowManager::hidePluginWindow(DeviceId deviceId, const te::Plugin::
                 onWindowStateChanged(deviceId, false);
             }
         }
+    } else {
+        juce::ScopedLock lock(windowLock_);
+        auto it = internalEditorWindows_.find(deviceId);
+        if (it != internalEditorWindows_.end()) {
+            it->second.reset();
+            internalEditorWindows_.erase(it);
+        }
+        auto tw = trackedWindows_.find(deviceId);
+        if (tw != trackedWindows_.end())
+            tw->second.wasOpen = false;
+
+        if (onWindowStateChanged)
+            onWindowStateChanged(deviceId, false);
     }
 }
 
@@ -130,6 +178,13 @@ bool PluginWindowManager::isPluginWindowOpen(const te::Plugin::Ptr& plugin) cons
         if (extPlugin->windowState) {
             return extPlugin->windowState->isWindowShowing();
         }
+    }
+
+    // Check internal editor windows
+    juce::ScopedLock lock(windowLock_);
+    for (const auto& [id, info] : trackedWindows_) {
+        if (info.plugin == plugin && info.wasOpen)
+            return true;
     }
     return false;
 }
@@ -165,6 +220,7 @@ void PluginWindowManager::closeAllWindows() {
     // Clear tracking
     {
         juce::ScopedLock lock(windowLock_);
+        internalEditorWindows_.clear();
         trackedWindows_.clear();
     }
 }
