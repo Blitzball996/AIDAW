@@ -75,7 +75,16 @@ struct StrudelPlugin::JSEngine {
     juce::String setPattern(const juce::String& code) {
         if (!ready) return "JS not ready";
         try {
-            auto result = ctx.invoke("__setPattern", code.toStdString());
+            // Try as full JS expression (handles: mini("c3 e3"), note("c3").fast(2), etc.)
+            std::string js = "(function(){ try { var __r = (" + code.toStdString() +
+                "); if(__r && typeof __r.queryArc==='function'){__currentPattern=__r;return '';}"
+                "else{return 'Not a pattern';} } catch(e){return String(e.message||e);} })()";
+            auto result = ctx.evaluateExpression(js);
+            auto err = result.toString();
+            if (err.empty()) return {};
+
+            // Fallback: treat as mini notation string
+            result = ctx.invoke("__setPattern", code.toStdString());
             return juce::String(result.toString());
         } catch (const std::exception& e) {
             return e.what();
@@ -132,7 +141,7 @@ void StrudelPlugin::initJS() {
 void StrudelPlugin::initialise(const te::PluginInitialisationInfo& info) {
     sampleRate_ = info.sampleRate;
     lastCyclePos_ = 0.0;
-    // Try to compile initial pattern
+    synth_.init((float)sampleRate_);
     if (codeValue.get().isNotEmpty())
         evaluate(codeValue.get());
 }
@@ -141,7 +150,7 @@ void StrudelPlugin::deinitialise() {}
 
 void StrudelPlugin::reset() {
     lastCyclePos_ = 0.0;
-    for (auto& v : voices_) v.active = false;
+    synth_.reset();
 }
 
 juce::String StrudelPlugin::evaluate(const juce::String& code) {
@@ -232,43 +241,18 @@ void StrudelPlugin::applyToBuffer(const te::PluginRenderContext& rc) {
         for (int c = firstCycle; c <= lastCycleInt; ++c) {
             double eventTime = c + ev.onset;
             if (eventTime >= startCycle && eventTime < endCycle) {
-                // Find free voice
-                TidalVoice* voice = nullptr;
-                for (auto& v : voices_) {
-                    if (!v.active) { voice = &v; break; }
-                }
-                if (!voice) {
-                    // Steal oldest
-                    voice = &voices_[0];
-                    for (auto& v : voices_)
-                        if (v.startTime < voice->startTime) voice = &v;
-                }
-                double durSeconds = ev.duration / cps;
-                voice->trigger(ev.note, ev.velocity, eventTime, durSeconds, (float)sampleRate_);
+                synth_.noteOn(ev.note, ev.velocity, eventTime, ev.duration);
             }
         }
     }
 
-    // Release voices that have ended
-    for (auto& v : voices_) {
-        if (v.active && v.envStage < 2) {
-            double elapsed = (endCycle - v.startTime) / cps;
-            double dur = (v.endTime - v.startTime) / cps;
-            if (elapsed > dur) v.release();
-        }
-    }
+    // Release voices past their duration
+    synth_.releaseVoicesAfter(endCycle);
 
     // Render audio
     int numChannels = rc.destBuffer->getNumChannels();
     for (int i = 0; i < numSamples; ++i) {
-        float sample = 0.0f;
-        for (auto& v : voices_) {
-            if (v.active)
-                sample += v.render((float)sampleRate_);
-        }
-        // Soft clip
-        sample = std::tanh(sample);
-
+        float sample = synth_.render();
         if (numChannels >= 1)
             rc.destBuffer->addSample(0, startSample + i, sample);
         if (numChannels >= 2)
