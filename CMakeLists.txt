@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 
-# macOS: support back to Big Sur (first Apple Silicon release)
-if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+# macOS: support back to Big Sur (first Apple Silicon release).
+# Force-set so subprojects (llama.cpp) don't inherit a lower Xcode default.
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
 endif()
 
 project(Magda VERSION 0.1.0 LANGUAGES C CXX)
