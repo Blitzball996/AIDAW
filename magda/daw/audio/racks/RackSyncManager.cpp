@@ -1421,6 +1421,7 @@ void RackSyncManager::collectLFOModifiersWithModes(TrackId trackId,
         if (!rackInfo)
             continue;
 
+        const auto& syncedRef = synced;
         auto collectRack =
             [&](auto&& self, RackInfo& rack, const ChainNodePath& rackPath,
                 const std::map<ModId, te::Modifier::Ptr>& rackMods,
@@ -1438,8 +1439,8 @@ void RackSyncManager::collectLFOModifiersWithModes(TrackId trackId,
                     } else if (isRack(element)) {
                         auto& nestedRack = getRack(element);
                         const auto nestedPath = chainPath.withRack(nestedRack.id);
-                        auto stateIt = synced.nestedRackMods.find(pathKey(nestedPath));
-                        if (stateIt != synced.nestedRackMods.end()) {
+                        auto stateIt = syncedRef.nestedRackMods.find(pathKey(nestedPath));
+                        if (stateIt != syncedRef.nestedRackMods.end()) {
                             collected +=
                                 self(self, nestedRack, nestedPath, stateIt->second.modifiers,
                                      stateIt->second.innerDeviceMods);
@@ -1510,6 +1511,7 @@ void RackSyncManager::collectLFOModifiersWithModesForSidechainSource(
         if (!rackInfo)
             continue;
 
+        const auto& syncedRef = synced;
         auto collectRack =
             [&](auto&& self, RackInfo& rack, const ChainNodePath& rackPath,
                 const std::map<ModId, te::Modifier::Ptr>& rackMods,
@@ -1537,8 +1539,8 @@ void RackSyncManager::collectLFOModifiersWithModesForSidechainSource(
                     } else if (isRack(element)) {
                         auto& nestedRack = getRack(element);
                         const auto nestedPath = chainPath.withRack(nestedRack.id);
-                        auto stateIt = synced.nestedRackMods.find(pathKey(nestedPath));
-                        if (stateIt != synced.nestedRackMods.end()) {
+                        auto stateIt = syncedRef.nestedRackMods.find(pathKey(nestedPath));
+                        if (stateIt != syncedRef.nestedRackMods.end()) {
                             collected +=
                                 self(self, nestedRack, nestedPath, stateIt->second.modifiers,
                                      stateIt->second.innerDeviceMods);
@@ -1591,6 +1593,7 @@ void RackSyncManager::syncLFOValuesToVisuals() {
         if (!rackInfo)
             continue;
 
+        auto& syncedRef = synced;
         auto overlayRack =
             [&](auto&& self, RackInfo& rack, const ChainNodePath& rackPath,
                 const std::map<ModId, te::Modifier::Ptr>& rackMods,
@@ -1608,8 +1611,8 @@ void RackSyncManager::syncLFOValuesToVisuals() {
                     } else if (isRack(element)) {
                         auto& nestedRack = getRack(element);
                         const auto nestedPath = chainPath.withRack(nestedRack.id);
-                        auto nestedIt = synced.nestedRackMods.find(pathKey(nestedPath));
-                        if (nestedIt != synced.nestedRackMods.end()) {
+                        auto nestedIt = syncedRef.nestedRackMods.find(pathKey(nestedPath));
+                        if (nestedIt != syncedRef.nestedRackMods.end()) {
                             self(self, nestedRack, nestedPath, nestedIt->second.modifiers,
                                  nestedIt->second.innerDeviceMods);
                         }

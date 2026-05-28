@@ -159,7 +159,7 @@ void MusicMemory::load() {
             MusicMemoryEntry entry;
             entry.role = item["role"].toString().toStdString();
             entry.content = item["content"].toString().toStdString();
-            entry.timestamp = static_cast<int64_t>(item["timestamp"]);
+            entry.timestamp = static_cast<int64_t>(static_cast<int>(item["timestamp"]));
             entries_.push_back(std::move(entry));
         }
     }
@@ -185,7 +185,7 @@ void MusicMemory::save() {
         auto* obj = new juce::DynamicObject();
         obj->setProperty("role", juce::String(entry.role));
         obj->setProperty("content", juce::String(entry.content));
-        obj->setProperty("timestamp", entry.timestamp);
+        obj->setProperty("timestamp", static_cast<int>(entry.timestamp));
         arr.add(juce::var(obj));
     }
     root->setProperty("entries", arr);
