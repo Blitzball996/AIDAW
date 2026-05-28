@@ -2,7 +2,9 @@
 
 #include <juce_llm/juce_llm.h>
 
+#if MAGDA_ENABLE_LOCAL_LLM
 #include "../../../agents/llama_model_manager.hpp"
+#endif
 #include "../../../agents/llm_config_utils.hpp"
 #include "../../../agents/llm_presets.hpp"
 #include "../../../agents/model_downloader.hpp"
@@ -743,7 +745,11 @@ class AISettingsDialog::LocalPage : public juce::Component {
     }
 
     bool isModelLoaded() const {
+#if MAGDA_ENABLE_LOCAL_LLM
         return LlamaModelManager::getInstance().isLoaded();
+#else
+        return false;
+#endif
     }
 
   private:
@@ -822,6 +828,7 @@ class AISettingsDialog::LocalPage : public juce::Component {
     }
 
     void toggleModel() {
+#if MAGDA_ENABLE_LOCAL_LLM
         auto& mgr = LlamaModelManager::getInstance();
         if (mgr.isLoaded()) {
             mgr.unloadModel();
@@ -852,6 +859,7 @@ class AISettingsDialog::LocalPage : public juce::Component {
             }).detach();
             return;
         }
+#endif
         updateStatus();
     }
 

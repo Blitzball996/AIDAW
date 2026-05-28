@@ -17,8 +17,7 @@ jobs:
           lfs: true
 
       - name: Install dependencies
-        run: |
-          brew install ninja
+        run: brew install ninja
 
       - name: Download GeneralUser GS SoundFont
         run: |
@@ -40,11 +39,9 @@ jobs:
         run: |
           APP_PATH="build/magda/daw/magda_daw_app_artefacts/Release/Blitz.app"
           if [ ! -d "$APP_PATH" ]; then
-            echo "App bundle not found at $APP_PATH"
             find build -name "*.app" -type d
             exit 1
           fi
-          # Create DMG
           mkdir -p dmg_staging
           cp -R "$APP_PATH" dmg_staging/
           ln -s /Applications dmg_staging/Applications

@@ -34,10 +34,6 @@ dsl_grammar.hpp
     router_agent.cpp
     controller_profile_agent.hpp
     controller_profile_agent.cpp
-    llama_model_manager.hpp
-    llama_model_manager.cpp
-    llama_local_client.hpp
-    llama_local_client.cpp
     llm_client_factory.hpp
     model_downloader.hpp
     model_downloader.cpp
@@ -64,6 +60,15 @@ dsl_grammar.hpp
     mcp/MCPServerManager.cpp
 )
 
+if(MAGDA_ENABLE_LOCAL_LLM)
+    list(APPEND AGENTS_SOURCES
+        llama_model_manager.hpp
+        llama_model_manager.cpp
+        llama_local_client.hpp
+        llama_local_client.cpp
+    )
+endif()
+
 # Create the agents library
 add_library(magda_agents STATIC ${AGENTS_SOURCES})
 
@@ -73,9 +78,12 @@ target_link_libraries(magda_agents
     magda_daw
     PRIVATE
     Threads::Threads
-    llama
-    ggml
 )
+
+if(MAGDA_ENABLE_LOCAL_LLM)
+    target_link_libraries(magda_agents PRIVATE llama ggml)
+    target_compile_definitions(magda_agents PUBLIC MAGDA_ENABLE_LOCAL_LLM=1)
+endif()
 
 # Include directories
 target_include_directories(magda_agents

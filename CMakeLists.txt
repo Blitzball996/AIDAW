@@ -1,13 +1,15 @@
 cmake_minimum_required(VERSION 3.24)
 
-# macOS: support back to Big Sur (first Apple Silicon release).
-# Set as both cache and normal variable before project() so all subprojects
-# (including llama.cpp/ggml which have their own project() calls) inherit it.
+# macOS deployment target: default 11.0 (Big Sur), overridable via -D flag.
+# The compile/link options force the flag onto subprojects (llama.cpp/ggml)
+# whose own project() calls would otherwise reset it.
 if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version" FORCE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")
-    add_compile_options(-mmacosx-version-min=11.0)
-    add_link_options(-mmacosx-version-min=11.0)
+    if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")
+    endif()
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}" CACHE STRING "Minimum macOS version" FORCE)
+    add_compile_options(-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET})
+    add_link_options(-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET})
 endif()
 
 project(Magda VERSION 0.1.0 LANGUAGES C CXX)
@@ -111,30 +113,31 @@ add_subdirectory(third_party/tracktion_engine)
 # LLM API client module (juce_core only)
 juce_add_module(${CMAKE_CURRENT_SOURCE_DIR}/third_party/juce-llm/juce_llm)
 
-# llama.cpp — embedded local inference
-set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-if(APPLE)
-    set(GGML_METAL ON CACHE BOOL "" FORCE)
-    set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "" FORCE)
-else()
-    set(GGML_METAL OFF CACHE BOOL "" FORCE)
-    # Disable -march=native so the binary runs on CPUs without AVX2/FMA/etc.
-    # Without this, AppImages built on modern CI runners crash with SIGILL
-    # on older CPUs (e.g. pre-Haswell).  Baseline: SSE4.2 + AVX.
-    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
-    set(GGML_AVX2   OFF CACHE BOOL "" FORCE)
-    set(GGML_FMA    OFF CACHE BOOL "" FORCE)
-    set(GGML_F16C   OFF CACHE BOOL "" FORCE)
-    set(GGML_BMI2   OFF CACHE BOOL "" FORCE)
-endif()
-add_subdirectory(third_party/llama.cpp)
+# llama.cpp — embedded local inference (optional, requires macOS 10.15+)
+option(MAGDA_ENABLE_LOCAL_LLM "Enable local GGUF inference via llama.cpp" ON)
 
-# llama.cpp doesn't need C++20; building as C++17 avoids MSVC char8_t errors
-if(MSVC)
-    set_target_properties(llama PROPERTIES CXX_STANDARD 17)
+if(MAGDA_ENABLE_LOCAL_LLM)
+    set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    if(APPLE)
+        set(GGML_METAL ON CACHE BOOL "" FORCE)
+        set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "" FORCE)
+    else()
+        set(GGML_METAL OFF CACHE BOOL "" FORCE)
+        set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+        set(GGML_AVX2   OFF CACHE BOOL "" FORCE)
+        set(GGML_FMA    OFF CACHE BOOL "" FORCE)
+        set(GGML_F16C   OFF CACHE BOOL "" FORCE)
+        set(GGML_BMI2   OFF CACHE BOOL "" FORCE)
+    endif()
+    add_subdirectory(third_party/llama.cpp)
+
+    # llama.cpp doesn't need C++20; building as C++17 avoids MSVC char8_t errors
+    if(MSVC)
+        set_target_properties(llama PROPERTIES CXX_STANDARD 17)
+    endif()
 endif()
 
 # Faust — runtime DSP compilation. Free tier uses the interpreter backend (no

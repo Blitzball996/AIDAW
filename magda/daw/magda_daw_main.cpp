@@ -7,7 +7,9 @@
 #include <memory>
 #include <string>
 
+#if MAGDA_ENABLE_LOCAL_LLM
 #include "../../magda/agents/llama_model_manager.hpp"
+#endif
 #include "../../magda/agents/llm_presets.hpp"
 #include "api/magda_api_live.hpp"
 #include "audio/AudioBridge.hpp"
@@ -247,6 +249,7 @@ class MagdaDAWApplication : public JUCEApplication {
         splashScreen_.reset();
 
         // 6. Auto-load local model if configured and enabled
+#if MAGDA_ENABLE_LOCAL_LLM
         {
             auto& config = magda::Config::getInstance();
             if (config.getLoadModelOnStartup() && !config.getLocalModelPath().empty()) {
@@ -265,6 +268,7 @@ class MagdaDAWApplication : public JUCEApplication {
                 });
             }
         }
+#endif
 
         // Open project file if passed on command line (e.g. double-click .mgd in file manager)
         auto cmdLine = getCommandLineParameters();
