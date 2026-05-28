@@ -864,6 +864,7 @@ class AISettingsDialog::LocalPage : public juce::Component {
     }
 
     void updateStatus() {
+#if MAGDA_ENABLE_LOCAL_LLM
         auto& mgr = LlamaModelManager::getInstance();
         if (mgr.isLoaded()) {
             loadButton_.setButtonText("Unload");
@@ -876,6 +877,13 @@ class AISettingsDialog::LocalPage : public juce::Component {
             statusLabel_.setColour(juce::Label::textColourId,
                                    DarkTheme::getColour(DarkTheme::TEXT_DIM));
         }
+#else
+        loadButton_.setButtonText("Not Available");
+        loadButton_.setEnabled(false);
+        statusLabel_.setText("Local LLM disabled in this build", juce::dontSendNotification);
+        statusLabel_.setColour(juce::Label::textColourId,
+                               DarkTheme::getColour(DarkTheme::TEXT_DIM));
+#endif
     }
 
     void gpuComboChanged() {
