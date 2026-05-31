@@ -22,6 +22,7 @@
 #include "core/TrackManager.hpp"
 #include "core/UIScale.hpp"
 #include "core/UpdateChecker.hpp"
+#include "core/license/LicenseManager.hpp"
 #include "core/controllers/ControllerProfileRegistry.hpp"
 #include "engine/TracktionEngineWrapper.hpp"
 #include "magda/scripting/LuaController.hpp"
@@ -282,6 +283,13 @@ class MagdaDAWApplication : public JUCEApplication {
         }
 
         juce::Logger::writeToLog("=== MAGDA is ready! ===");
+
+        // License gate (序列号在线激活). Activated -> nothing; Trial -> info box +
+        // countdown that quits on expiry; Locked -> modal activation or quit.
+        // Deferred a beat so the main window is fully visible before any dialog.
+        juce::MessageManager::callAsync([] {
+            magda::LicenseManager::getInstance().enforceAtStartup();
+        });
 
         // Silent GitHub release check. Rate-limited to once per 24h via
         // Config; never blocks startup and only surfaces UI when an update
