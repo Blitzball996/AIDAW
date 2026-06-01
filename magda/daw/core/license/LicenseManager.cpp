@@ -1,21 +1,13 @@
 // LicenseManager implementation — see LicenseManager.hpp.
 #include "LicenseManager.hpp"
+#include "../StringTable.hpp"
 
 namespace magda {
 
 namespace {
-// Friendly Chinese text for a server/spec error code.
+// Localized text for a server/spec error code (lang/<code>.json → license.err.*).
 juce::String errText(const juce::String& code) {
-    if (code == "NOT_FOUND")         return juce::String::fromUTF8("查无此序列号");
-    if (code == "ALREADY_ACTIVATED") return juce::String::fromUTF8("该序列号已在另一台设备激活（一码一机）");
-    if (code == "REVOKED")           return juce::String::fromUTF8("该序列号已被吊销/退款");
-    if (code == "WRONG_PRODUCT")     return juce::String::fromUTF8("序列号与本软件不符（MAGDA 只接受 BD 开头）");
-    if (code == "BAD_CHECKSUM")      return juce::String::fromUTF8("序列号校验失败（请检查输入）");
-    if (code == "BAD_FORMAT")        return juce::String::fromUTF8("序列号格式错误");
-    if (code == "RATE_LIMITED")      return juce::String::fromUTF8("激活过于频繁，请稍后再试");
-    if (code == "NETWORK")           return juce::String::fromUTF8("网络错误，无法连接激活服务器（如使用代理请检查 clash 端口 7897）");
-    if (code == "BAD_TOKEN")         return juce::String::fromUTF8("激活令牌签名校验失败");
-    return juce::String::fromUTF8("激活失败（") + code + juce::String::fromUTF8("）");
+    return tr("license.err." + code);
 }
 } // namespace
 
@@ -102,8 +94,8 @@ LicenseManager::ActivateResult LicenseManager::activate(const juce::String& rawK
     out.ok = true;
     out.errorCode = "OK";
     out.edition = juce::String(ed);
-    out.message = juce::String::fromUTF8("激活成功！版本：") + out.edition +
-                  juce::String::fromUTF8("（") + juce::String(ti.key) + juce::String::fromUTF8("）");
+    out.message = tr("license.activated_msg").replace("{edition}", out.edition)
+                      .replace("{key}", juce::String(ti.key));
     return out;
 }
 
@@ -119,13 +111,12 @@ void LicenseManager::promptActivation(std::function<void(bool)> onDone, bool loc
     }
 
     auto* aw = new juce::AlertWindow(
-        juce::String::fromUTF8("激活 MAGDA"),
-        juce::String::fromUTF8("请输入序列号（格式 BDST/BDPR-XXXX-XXXX-XXXX-XXXX）：\n设备指纹: ") +
-            juce::String(lic::deviceId()),
+        tr("license.dialog_title"),
+        tr("license.enter_key_prompt").replace("{device}", juce::String(lic::deviceId())),
         juce::AlertWindow::QuestionIcon);
-    aw->addTextEditor("key", "", juce::String::fromUTF8("序列号"));
-    aw->addButton(juce::String::fromUTF8("激活"), 1, juce::KeyPress(juce::KeyPress::returnKey));
-    aw->addButton(lockedMode ? juce::String::fromUTF8("退出") : juce::String::fromUTF8("取消"), 0,
+    aw->addTextEditor("key", "", tr("license.serial"));
+    aw->addButton(tr("license.activate"), 1, juce::KeyPress(juce::KeyPress::returnKey));
+    aw->addButton(lockedMode ? tr("license.quit") : tr("license.cancel"), 0,
                   juce::KeyPress(juce::KeyPress::escapeKey));
     aw->setVisible(true);
 
@@ -133,7 +124,7 @@ void LicenseManager::promptActivation(std::function<void(bool)> onDone, bool loc
         true,
         juce::ModalCallbackFunction::create([this, aw, lockedMode, onDone](int r) {
             const juce::String key = aw->getTextEditorContents("key").trim();
-            if (r != 1) {  // 取消 / 退出
+            if (r != 1) {  // cancel / quit
                 if (lockedMode) quitApp();
                 if (onDone) onDone(false);
                 return;
@@ -141,12 +132,12 @@ void LicenseManager::promptActivation(std::function<void(bool)> onDone, bool loc
             auto res = activate(key);
             if (res.ok) {
                 juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
-                                                       juce::String::fromUTF8("激活成功"), res.message);
+                                                       tr("license.activate_ok_title"), res.message);
                 if (onDone) onDone(true);
             } else {
                 // Show the error, then re-open the prompt so the user can retry.
                 juce::AlertWindow::showMessageBoxAsync(
-                    juce::AlertWindow::WarningIcon, juce::String::fromUTF8("激活失败"),
+                    juce::AlertWindow::WarningIcon, tr("license.activate_fail_title"),
                     res.message, {}, nullptr,
                     juce::ModalCallbackFunction::create([this, lockedMode, onDone](int) {
                         promptActivation(onDone, lockedMode);
@@ -168,8 +159,8 @@ void LicenseManager::enforceAtStartup() {
     if (s.state == lic::State::Locked) {
         // 30+10 min used up: force activation or quit.
         juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon, juce::String::fromUTF8("试用已结束"),
-            juce::String::fromUTF8("MAGDA 试用已用尽（30 分钟 + 10 分钟）。请输入序列号激活以继续使用。"),
+            juce::AlertWindow::WarningIcon, tr("license.trial_ended_title"),
+            tr("license.locked_msg"),
             {}, nullptr,
             juce::ModalCallbackFunction::create([this](int) {
                 promptActivation(nullptr, /*lockedMode*/ true);
@@ -177,19 +168,31 @@ void LicenseManager::enforceAtStartup() {
         return;
     }
 
-    // Trial: announce, start countdown.
+    // Trial: announce + offer to activate right now; otherwise start countdown.
     trialRun_ = s.trialRun;
     trialAllowanceSec_ = s.allowanceSeconds;
-    trialStartMs_ = juce::Time::currentTimeMillis();
-    committed_ = false;
 
-    juce::AlertWindow::showMessageBoxAsync(
-        juce::AlertWindow::InfoIcon, juce::String::fromUTF8("试用模式"),
-        juce::String::fromUTF8("MAGDA 试用（第 ") + juce::String(trialRun_) +
-            juce::String::fromUTF8(" 次）：本次可用 ") + juce::String(trialAllowanceSec_ / 60) +
-            juce::String::fromUTF8(" 分钟。\n激活以解除限制（菜单 帮助 → 激活）。"));
+    auto startTrial = [this]() {
+        trialStartMs_ = juce::Time::currentTimeMillis();
+        committed_ = false;
+        startTimer(1000);  // check every second
+    };
 
-    startTimer(1000);  // check every second
+    juce::AlertWindow::showOkCancelBox(
+        juce::AlertWindow::InfoIcon, tr("license.trial_title"),
+        tr("license.trial_msg")
+            .replace("{run}", juce::String(trialRun_))
+            .replace("{min}", juce::String(trialAllowanceSec_ / 60)),
+        tr("license.enter_key"), tr("license.start_trial"), nullptr,
+        juce::ModalCallbackFunction::create([this, startTrial](int r) {
+            if (r == 1) {
+                // Activate now; if the user cancels or it fails, fall back to trial.
+                promptActivation([startTrial](bool ok) { if (!ok) startTrial(); },
+                                 /*lockedMode*/ false);
+            } else {
+                startTrial();
+            }
+        }));
 }
 
 void LicenseManager::timerCallback() {
@@ -205,9 +208,8 @@ void LicenseManager::timerCallback() {
     if (elapsedSec >= trialAllowanceSec_) {
         stopTimer();
         juce::AlertWindow::showMessageBoxAsync(
-            juce::AlertWindow::WarningIcon, juce::String::fromUTF8("试用结束"),
-            juce::String::fromUTF8("本次试用时间（") + juce::String(trialAllowanceSec_ / 60) +
-                juce::String::fromUTF8(" 分钟）已结束，MAGDA 将退出。请激活后继续使用。"),
+            juce::AlertWindow::WarningIcon, tr("license.trial_over_title"),
+            tr("license.trial_over_msg").replace("{min}", juce::String(trialAllowanceSec_ / 60)),
             {}, nullptr,
             juce::ModalCallbackFunction::create([](int) { quitApp(); }));
     }
