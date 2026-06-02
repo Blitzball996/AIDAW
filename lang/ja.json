@@ -65,6 +65,7 @@
     "window.bring_to_front": "全てを最前面に表示",
     "help.manual": "オンラインマニュアル",
     "help.check_updates": "アップデートを確認…",
+    "help.activate": "ライセンス認証 / シリアル入力…",
     "help.about": "MAGDAについて"
   },
   "transport": {

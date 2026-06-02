@@ -88,6 +88,7 @@ class MenuManager : public juce::MenuBarModel, public UndoManagerListener {
         std::function<void()> onShowHelp;
         std::function<void()> onOpenManual;
         std::function<void()> onCheckForUpdates;
+        std::function<void()> onActivateLicense;
         std::function<void()> onAbout;
 
         // New feature panels
@@ -206,6 +207,7 @@ class MenuManager : public juce::MenuBarModel, public UndoManagerListener {
         ShowHelp = 700,
         OpenManual,
         CheckForUpdates,
+        ActivateLicense = 710,
         About = 799
     };
 

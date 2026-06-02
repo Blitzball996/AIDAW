@@ -65,6 +65,7 @@
     "window.bring_to_front": "全部前置",
     "help.manual": "在线手册",
     "help.check_updates": "检查更新…",
+    "help.activate": "激活 / 输入序列号…",
     "help.about": "关于 MAGDA"
   },
   "transport": {

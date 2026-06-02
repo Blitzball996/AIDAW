@@ -65,6 +65,7 @@
     "window.bring_to_front": "Bring All to Front",
     "help.manual": "Online Manual",
     "help.check_updates": "Check for Updates...",
+    "help.activate": "Activate / Enter License Key...",
     "help.about": "About MAGDA"
   },
   "transport": {

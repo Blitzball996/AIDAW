@@ -1,6 +1,7 @@
 #include "../../core/ClipCommands.hpp"
 #include "../../core/ClipManager.hpp"
 #include "../../core/UpdateChecker.hpp"
+#include "../../core/license/LicenseManager.hpp"
 #include "../dialogs/AISettingsDialog.hpp"
 #include "../dialogs/AboutDialog.hpp"
 #include "../dialogs/AudioSettingsDialog.hpp"
@@ -778,6 +779,10 @@ void MainWindow::setupMenuCallbacks() {
     };
 
     callbacks.onAbout = []() { AboutDialog::show(); };
+
+    callbacks.onActivateLicense = []() {
+        magda::LicenseManager::getInstance().promptActivation();
+    };
 
     // Settings menu callbacks
     callbacks.onControllerSettings = [this]() { ControllersDialog::showDialog(this); };
