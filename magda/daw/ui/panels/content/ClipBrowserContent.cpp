@@ -117,7 +117,7 @@ void ClipBrowserContent::mouseDrag(const juce::MouseEvent& e) {
                 juce::StringArray files;
                 files.add(dragFile_.getFullPathName());
                 container->performExternalDragDropOfFiles(files, false);
-                dragFile_ = {};
+                dragFile_ = juce::File();
             }
         }
     }

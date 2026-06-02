@@ -7,7 +7,9 @@
 #include <memory>
 #include <string>
 
+#if MAGDA_ENABLE_LOCAL_LLM
 #include "../../magda/agents/llama_model_manager.hpp"
+#endif
 #include "../../magda/agents/llm_presets.hpp"
 #include "api/magda_api_live.hpp"
 #include "audio/AudioBridge.hpp"
@@ -20,6 +22,7 @@
 #include "core/TrackManager.hpp"
 #include "core/UIScale.hpp"
 #include "core/UpdateChecker.hpp"
+#include "core/license/LicenseManager.hpp"
 #include "core/controllers/ControllerProfileRegistry.hpp"
 #include "engine/TracktionEngineWrapper.hpp"
 #include "magda/scripting/LuaController.hpp"
@@ -247,6 +250,7 @@ class MagdaDAWApplication : public JUCEApplication {
         splashScreen_.reset();
 
         // 6. Auto-load local model if configured and enabled
+#if MAGDA_ENABLE_LOCAL_LLM
         {
             auto& config = magda::Config::getInstance();
             if (config.getLoadModelOnStartup() && !config.getLocalModelPath().empty()) {
@@ -265,6 +269,7 @@ class MagdaDAWApplication : public JUCEApplication {
                 });
             }
         }
+#endif
 
         // Open project file if passed on command line (e.g. double-click .mgd in file manager)
         auto cmdLine = getCommandLineParameters();
@@ -278,6 +283,13 @@ class MagdaDAWApplication : public JUCEApplication {
         }
 
         juce::Logger::writeToLog("=== MAGDA is ready! ===");
+
+        // License gate (序列号在线激活). Activated -> nothing; Trial -> info box +
+        // countdown that quits on expiry; Locked -> modal activation or quit.
+        // Deferred a beat so the main window is fully visible before any dialog.
+        juce::MessageManager::callAsync([] {
+            magda::LicenseManager::getInstance().enforceAtStartup();
+        });
 
         // Silent GitHub release check. Rate-limited to once per 24h via
         // Config; never blocks startup and only surfaces UI when an update

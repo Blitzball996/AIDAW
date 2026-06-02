@@ -3,6 +3,8 @@ build2/
 *.zip
 *.exe
 *.lib
+!third_party/faust/libraries/**/*.lib
+!third_party/faust/libraries/*.lib
 *.obj
 *.pdb
 *.ilk

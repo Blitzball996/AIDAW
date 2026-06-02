@@ -17,7 +17,9 @@
 #include "../../../../agents/four_osc_apply.hpp"
 #include "../../../../agents/instruction_executor.hpp"
 #include "../../../../agents/internal_plugins.hpp"
+#if MAGDA_ENABLE_LOCAL_LLM
 #include "../../../../agents/llama_model_manager.hpp"
+#endif
 #include "../../../../agents/llm_presets.hpp"
 #include "../../../../agents/music_agent.hpp"
 #include "../../../../agents/music_memory.hpp"
@@ -882,6 +884,7 @@ AIChatConsoleContent::AIChatConsoleContent() {
     serverToggleButton_ = std::make_unique<magda::SvgButton>(
         "ModelToggle", BinaryData::server_play_svg, BinaryData::server_play_svgSize);
     serverToggleButton_->onClick = [this]() {
+#if MAGDA_ENABLE_LOCAL_LLM
         auto& mgr = magda::LlamaModelManager::getInstance();
         if (mgr.isLoaded()) {
             mgr.unloadModel();
@@ -909,6 +912,7 @@ AIChatConsoleContent::AIChatConsoleContent() {
                 });
             }).detach();
         }
+#endif
     };
     addChildComponent(*serverToggleButton_);  // hidden by default
 
@@ -1562,6 +1566,7 @@ void AIChatConsoleContent::updateConfigStatus() {
 
     // If embedded local provider, show model status + toggle button
     if (isLocalPreset() && serverToggleButton_) {
+#if MAGDA_ENABLE_LOCAL_LLM
         auto& mgr = magda::LlamaModelManager::getInstance();
         if (mgr.isLoaded()) {
             auto modelName = juce::File(mgr.getLoadedModelPath()).getFileName();
@@ -1583,6 +1588,12 @@ void AIChatConsoleContent::updateConfigStatus() {
                                          DarkTheme::getSecondaryTextColour());
         }
         serverToggleButton_->repaint();
+#else
+        status += " | Local LLM not available";
+        serverToggleButton_->setVisible(false);
+        configStatusLabel_.setColour(juce::Label::textColourId,
+                                     DarkTheme::getSecondaryTextColour());
+#endif
     } else {
         if (serverToggleButton_)
             serverToggleButton_->setVisible(false);

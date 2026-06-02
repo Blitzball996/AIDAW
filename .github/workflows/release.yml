@@ -1,0 +1,226 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-14
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install dependencies
+        run: brew install ninja
+
+      - name: Download GeneralUser GS SoundFont
+        run: |
+          mkdir -p assets/soundfonts
+          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
+            -o assets/soundfonts/GeneralUser_GS.sf2
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_ARCHITECTURES="arm64"
+
+      - name: Build
+        run: cmake --build build --config Release --target magda_daw_app
+
+      - name: Create DMG
+        run: |
+          APP_PATH="build/magda/daw/magda_daw_app_artefacts/Release/Blitz.app"
+          if [ ! -d "$APP_PATH" ]; then
+            find build -name "*.app" -type d
+            exit 1
+          fi
+          mkdir -p dmg_staging
+          cp -R "$APP_PATH" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "Blitz" -srcfolder dmg_staging \
+            -ov -format UDZO "Blitz-macOS-arm64.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blitz-macOS-arm64
+          path: Blitz-macOS-arm64.dmg
+
+  build-macos-x86-legacy:
+    runs-on: macos-14
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "10.13"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install dependencies
+        run: brew install ninja
+
+      - name: Download GeneralUser GS SoundFont
+        run: |
+          mkdir -p assets/soundfonts
+          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
+            -o assets/soundfonts/GeneralUser_GS.sf2
+
+      - name: Configure CMake (no llama.cpp for 10.13 compat)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64" \
+            -DMAGDA_ENABLE_LOCAL_LLM=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --target magda_daw_app
+
+      - name: Create DMG
+        run: |
+          APP_PATH="build/magda/daw/magda_daw_app_artefacts/Release/Blitz.app"
+          if [ ! -d "$APP_PATH" ]; then
+            find build -name "*.app" -type d
+            exit 1
+          fi
+          mkdir -p dmg_staging
+          cp -R "$APP_PATH" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "Blitz" -srcfolder dmg_staging \
+            -ov -format UDZO "Blitz-macOS-x86_64-legacy.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blitz-macOS-x86_64-legacy
+          path: Blitz-macOS-x86_64-legacy.dmg
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libfreetype-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxcomposite-dev \
+            libgl-dev \
+            libcurl4-openssl-dev \
+            libwebkit2gtk-4.1-dev \
+            ladspa-sdk
+
+      - name: Download GeneralUser GS SoundFont
+        run: |
+          mkdir -p assets/soundfonts
+          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
+            -o assets/soundfonts/GeneralUser_GS.sf2
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --target magda_daw_app
+
+      - name: Package
+        run: |
+          mkdir -p package/Blitz
+          BIN_PATH="build/magda/daw/magda_daw_app_artefacts/Release/Blitz"
+          if [ ! -f "$BIN_PATH" ]; then
+            find build -name "Blitz" -o -name "magda_daw_app" | head -10
+            exit 1
+          fi
+          cp "$BIN_PATH" package/Blitz/
+          cp -r assets/soundfonts package/Blitz/ 2>/dev/null || true
+          tar -czf Blitz-linux-x86_64.tar.gz -C package Blitz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blitz-Linux-x86_64
+          path: Blitz-linux-x86_64.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Download GeneralUser GS SoundFont
+        shell: bash
+        run: |
+          mkdir -p assets/soundfonts
+          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
+            -o assets/soundfonts/GeneralUser_GS.sf2
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --target magda_daw_app
+
+      - name: Package ZIP
+        shell: bash
+        run: |
+          BIN_DIR="build/magda/daw/magda_daw_app_artefacts/Release"
+          if [ ! -f "$BIN_DIR/Blitz.exe" ]; then
+            find build -name "Blitz.exe" -o -name "magda_daw_app.exe" | head -10
+            exit 1
+          fi
+          mkdir -p package/Blitz
+          cp "$BIN_DIR/Blitz.exe" package/Blitz/
+          cp -r assets/soundfonts package/Blitz/ 2>/dev/null || true
+          cd package && 7z a -tzip ../Blitz-Windows-x64.zip Blitz/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blitz-Windows-x64
+          path: Blitz-Windows-x64.zip
+
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-macos-arm64, build-macos-x86-legacy, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            Blitz-macOS-arm64/Blitz-macOS-arm64.dmg
+            Blitz-macOS-x86_64-legacy/Blitz-macOS-x86_64-legacy.dmg
+            Blitz-Linux-x86_64/Blitz-linux-x86_64.tar.gz
+            Blitz-Windows-x64/Blitz-Windows-x64.zip

@@ -1,0 +1,67 @@
+name: Build Linux
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libfreetype-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxcomposite-dev \
+            libgl-dev \
+            libcurl4-openssl-dev \
+            libwebkit2gtk-4.1-dev \
+            ladspa-sdk
+
+      - name: Download GeneralUser GS SoundFont
+        run: |
+          mkdir -p assets/soundfonts
+          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
+            -o assets/soundfonts/GeneralUser_GS.sf2
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --target magda_daw_app
+
+      - name: Package
+        run: |
+          mkdir -p package/Blitz
+          BIN_PATH="build/magda/daw/magda_daw_app_artefacts/Release/Blitz"
+          if [ ! -f "$BIN_PATH" ]; then
+            echo "Binary not found at $BIN_PATH"
+            find build -name "Blitz" -o -name "magda_daw_app" | head -10
+            exit 1
+          fi
+          cp "$BIN_PATH" package/Blitz/
+          cp -r assets/soundfonts package/Blitz/ 2>/dev/null || true
+          tar -czf Blitz-linux-x86_64.tar.gz -C package Blitz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Blitz-Linux-x86_64
+          path: Blitz-linux-x86_64.tar.gz

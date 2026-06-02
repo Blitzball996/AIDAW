@@ -2,7 +2,9 @@
 
 #include <memory>
 
+#if MAGDA_ENABLE_LOCAL_LLM
 #include "../../magda/agents/llama_model_manager.hpp"
+#endif
 #include "engine/TracktionEngineWrapper.hpp"
 
 // Global engine instance
@@ -45,7 +47,9 @@ void magda_shutdown() {
         }
 
         // Unload embedded model if loaded
+#if MAGDA_ENABLE_LOCAL_LLM
         magda::LlamaModelManager::getInstance().unloadModel();
+#endif
 
         DBG("MAGDA shutdown complete.");
 

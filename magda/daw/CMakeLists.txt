@@ -296,7 +296,17 @@ juce_add_gui_app(magda_daw_app
 
 target_sources(magda_daw_app PRIVATE
     magda_daw_main.cpp
+    # License / online activation (序列号在线激活) — shared core, identical to CloseCrab
+    core/license/LicenseManager.cpp
+    core/license/LicenseCore.cpp
+    core/license/tweetnacl.c
+    core/license/tweetnacl_glue.c
 )
+
+# License activation persists the device-bound token in the Win32 registry.
+if(WIN32)
+    target_link_libraries(magda_daw_app PRIVATE advapi32)
+endif()
 
 # Out-of-process plugin scanner.
 juce_add_console_app(magda_plugin_scanner

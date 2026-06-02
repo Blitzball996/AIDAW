@@ -8,7 +8,6 @@
     "settings": "Settings",
     "window": "Window",
     "help": "Help",
-
     "file.new_project": "New Project",
     "file.open_project": "Open Project...",
     "file.open_recent": "Open Recent",
@@ -20,7 +19,6 @@
     "file.export_audio": "Export Audio...",
     "file.export_midi": "Export MIDI...",
     "file.quit": "Quit",
-
     "edit.undo": "Undo",
     "edit.redo": "Redo",
     "edit.cut": "Cut",
@@ -33,13 +31,11 @@
     "edit.render_clip": "Render Selected Clip(s)",
     "edit.render_time_selection": "Render Time Selection",
     "edit.select_all": "Select All",
-
     "settings.preferences": "Preferences...",
     "settings.ai": "AI Settings...",
     "settings.audio_midi": "Audio/MIDI Settings...",
     "settings.plugins": "Plugin Settings...",
     "settings.controllers": "Controllers...",
-
     "view.track_manager": "Track Manager...",
     "view.headers_right": "Headers on the Right",
     "view.zoom_in": "Zoom In",
@@ -48,7 +44,6 @@
     "view.zoom_loop": "Zoom Loop to Fit",
     "view.zoom_selection": "Zoom Selection to Fit",
     "view.fullscreen": "Enter Full Screen",
-
     "transport.play": "Play",
     "transport.pause": "Pause",
     "transport.stop": "Stop",
@@ -56,7 +51,6 @@
     "transport.loop": "Loop",
     "transport.go_to_start": "Go to Start",
     "transport.go_to_end": "Go to End",
-
     "track.add_track": "Add Track",
     "track.add_group": "Add Group Track",
     "track.add_aux": "Add Aux Track",
@@ -66,16 +60,14 @@
     "track.duplicate_content_only": "Duplicate Track Content Only",
     "track.mute": "Mute Track",
     "track.solo": "Solo Track",
-
     "window.minimize": "Minimize",
     "window.zoom": "Zoom",
     "window.bring_to_front": "Bring All to Front",
-
     "help.manual": "Online Manual",
     "help.check_updates": "Check for Updates...",
+    "help.activate": "Activate / Enter License Key...",
     "help.about": "About MAGDA"
   },
-
   "transport": {
     "count_in.off": "Off",
     "count_in.1_beat": "1 Beat",
@@ -89,7 +81,6 @@
     "cpu.peak": "peak",
     "cpu.xruns": "Xruns"
   },
-
   "tracks": {
     "mute": "M",
     "solo": "S",
@@ -120,7 +111,6 @@
     "hide_io_routing": "Hide I/O Routing",
     "remove_send_label": "Remove Send"
   },
-
   "panels": {
     "plugins": "Plugins",
     "samples": "Samples",
@@ -134,7 +124,6 @@
     "drum_grid": "Drum Grid",
     "properties": "Properties"
   },
-
   "inspector": {
     "track_name": "Track Name",
     "routing": "Routing",
@@ -147,14 +136,12 @@
     "clips": "Clips",
     "latency": "Latency"
   },
-
   "automation": {
     "snap_time": "Snap points to time grid",
     "snap_value": "Snap values to parameter grid",
     "bypass": "Automation on/off",
     "delete_lane": "Delete automation lane"
   },
-
   "clip_properties": {
     "audio_properties": "Audio Properties",
     "position": "Position",
@@ -183,7 +170,6 @@
     "auto_detect": "AUTO-DETECT",
     "auto_xfade": "AUTO-XFADE"
   },
-
   "dialogs": {
     "open_project": "Open Project",
     "new_project": "New Project",
@@ -199,7 +185,6 @@
     "about": "About MAGDA",
     "track_manager": "Track Manager",
     "chain_tree": "Chain Tree",
-
     "ok": "OK",
     "cancel": "Cancel",
     "apply": "Apply",
@@ -209,7 +194,6 @@
     "add": "Add",
     "download": "Download Model",
     "load": "Load Model",
-
     "loading_project": "Loading project...",
     "error.new_project": "Could not create new project.",
     "error.file_not_found": "Project file not found:",
@@ -227,19 +211,15 @@
     "updates.view_release": "View release",
     "updates.error_prefix": "Could not check for updates:"
   },
-
   "about": {
     "version_prefix": "Version "
   },
-
   "splash": {
     "version_prefix": "Version "
   },
-
   "chain_tree": {
     "label.click_hint": "Click an item to select it in the chain view"
   },
-
   "track_manager": {
     "column.track": "Track",
     "column.live": "Live",
@@ -247,7 +227,6 @@
     "column.mix": "Mix",
     "label.hint": "Click checkboxes to toggle track visibility per view mode"
   },
-
   "export_audio": {
     "label.format": "Format:",
     "label.sample_rate": "Sample Rate:",
@@ -265,7 +244,6 @@
     "bit_depth.32_float": "32-bit Float",
     "bit_depth.24_flac": "24-bit (FLAC)"
   },
-
   "export_midi": {
     "label.midi_format": "MIDI Format:",
     "label.export_range": "Export Range:",
@@ -277,7 +255,6 @@
     "button.export": "Export",
     "dialog.title": "Export MIDI"
   },
-
   "plugin_settings": {
     "section.system_directories": "System Plugin Directories",
     "section.custom_directories": "Custom Plugin Directories",
@@ -310,19 +287,16 @@
     "status.excluded": "excluded",
     "status.none_scanned": "No plugins scanned yet"
   },
-
   "footer": {
     "tooltip.session": "Session",
     "tooltip.arrangement": "Arrangement",
     "tooltip.mix": "Mix"
   },
-
   "main_window": {
     "loading.initializing": "Initializing...",
     "loading.scanning_devices": "Scanning audio & MIDI devices...",
     "undo.render_clips": "Render Clips"
   },
-
   "export": {
     "progress.exporting_audio": "Exporting Audio...",
     "progress.preparing": "Preparing to export...",
@@ -347,7 +321,6 @@
     "error.midi_write_failed": "Failed to write MIDI file.",
     "error.cannot_create_file": "Could not create output file:"
   },
-
   "common": {
     "on": "On",
     "off": "Off",
@@ -360,23 +333,19 @@
     "master": "Master",
     "master_output": "Master Output"
   },
-
   "preferences": {
     "language.header": "Language",
     "language.label": "UI Language",
     "language.restart_required": "Restart required for language change to fully apply.",
-
     "scale.label": "UI Scale",
     "scale.auto": "Auto (from display DPI)",
     "font_scale.label": "Font Size",
-
     "tab.general": "General",
     "tab.ui": "UI",
     "tab.colours": "Colours",
     "tab.rendering": "Rendering",
     "tab.paths": "Paths",
     "tab.shortcuts": "Shortcuts",
-
     "section.zoom": "Zoom",
     "section.timeline": "Timeline",
     "section.transport": "Transport",
@@ -391,14 +360,12 @@
     "section.format": "Format",
     "section.file_naming": "File Naming",
     "section.keyboard_shortcuts": "Keyboard Shortcuts",
-
     "slider.zoom_in_sensitivity": "Zoom In Sensitivity",
     "slider.zoom_out_sensitivity": "Zoom Out Sensitivity",
     "slider.zoom_shift_sensitivity": "Shift+Zoom Sensitivity",
     "slider.default_length": "Default Length",
     "slider.default_view": "Default View",
     "slider.interval": "Interval",
-
     "toggle.enable_autosave": "Enable auto-save",
     "toggle.stop_updates_playhead": "Stop updates playhead",
     "toggle.expand_left_panel": "Expand Left Panel (Browser)",
@@ -409,7 +376,6 @@
     "toggle.auto_monitor": "Auto-monitor selected track",
     "toggle.open_macros_on_select": "Open macros when selecting devices or racks",
     "toggle.show_tooltips": "Show tooltips",
-
     "button.add_colour": "+ Add Colour",
     "button.browse": "Browse...",
     "button.clear": "Clear",
@@ -417,13 +383,11 @@
     "button.reveal_finder": "Reveal in Finder",
     "button.reveal_explorer": "Show in Explorer",
     "button.reveal_files": "Open in file manager",
-
     "colours.colour": "Colour",
     "colours.hex_rgb": "Hex (RGB)",
     "colours.name": "Name",
     "colours.new_default_name": "New",
     "colours.default_name_prefix": "Colour",
-
     "label.new_clip_colour": "New clip colour",
     "label.render_output_folder": "Render Output Folder",
     "label.default_beside_source": "Default (beside source file)",
@@ -433,21 +397,17 @@
     "label.export_pattern": "Export Pattern",
     "label.bounce_pattern": "Bounce Pattern",
     "label.pattern_tokens_hint": "Tokens: <clip-name> <track-name> <project-name> <date-time>",
-
     "option.inherit_from_track": "Inherit from track",
     "option.cycle_palette": "Cycle through palette",
     "option.bit_depth_16": "16-bit",
     "option.bit_depth_24": "24-bit",
     "option.bit_depth_32_float": "32-bit float",
-
     "dialog.select_render_output_folder": "Select Render Output Folder",
-
     "shortcut.add_track": "Add Track",
     "shortcut.delete_track": "Delete Track",
     "shortcut.duplicate_track": "Duplicate Track",
     "shortcut.mute_track": "Mute Track",
     "shortcut.solo_track": "Solo Track",
-
     "paths.section.data": "Data folder (logs, scripts, plugin caches)",
     "paths.section.presets": "Presets folder (Chains, Racks, Devices)",
     "paths.label.folder": "Folder:",
@@ -466,7 +426,6 @@
     "paths.migration.fail_title": "Migration failed",
     "paths.migration.fail_message": "Could not copy all files from\n{0}\nto\n{1}\n\nFiles in the old location are untouched. You can copy them manually and restart."
   },
-
   "controllers": {
     "title": "Controllers",
     "tab.profiles": "MIDI Profiles",
@@ -514,5 +473,36 @@
     "upload_copy_failed": "Couldn't copy the profile into your controllers folder.",
     "upload_create_dir_failed": "Couldn't create the controllers folder:\n{0}",
     "upload_success": "Imported profile \"{0}\"."
+  },
+  "license": {
+    "dialog_title": "Activate MAGDA",
+    "enter_key_prompt": "Enter your license key (format BDST/BDPR-XXXX-XXXX-XXXX-XXXX):\nDevice ID: {device}",
+    "serial": "License key",
+    "activate": "Activate",
+    "cancel": "Cancel",
+    "quit": "Quit",
+    "activate_ok_title": "Activation successful",
+    "activate_fail_title": "Activation failed",
+    "activated_msg": "Activated! Edition: {edition} ({key})",
+    "trial_title": "MAGDA — Not Activated · Trial",
+    "trial_msg": "Not activated — trial run #{run}, {min} minutes available this session.\nRule: 30 min first run, 10 min second run, then activation required.\n\nEnter a license key now, or start the trial?",
+    "enter_key": "Enter license key",
+    "start_trial": "Start trial",
+    "trial_ended_title": "Trial ended",
+    "locked_msg": "MAGDA trial is used up (30 min + 10 min). Please enter a license key to continue.",
+    "trial_over_title": "Trial over",
+    "trial_over_msg": "This trial session ({min} min) is over. MAGDA will now exit. Activate to keep using it.",
+    "err": {
+      "NOT_FOUND": "License key not found.",
+      "ALREADY_ACTIVATED": "This key is already activated on another device (one key, one device).",
+      "REVOKED": "This key has been revoked / refunded.",
+      "WRONG_PRODUCT": "Key does not match this product (MAGDA only accepts BD keys).",
+      "BAD_CHECKSUM": "Invalid key (checksum failed — please check your input).",
+      "BAD_FORMAT": "Invalid key format.",
+      "RATE_LIMITED": "Too many activation attempts, please try again later.",
+      "NETWORK": "Network error — could not reach the activation server (if you use a proxy, check clash port 7897).",
+      "BAD_TOKEN": "Activation token signature verification failed.",
+      "UNKNOWN": "Activation failed."
+    }
   }
 }

@@ -65,6 +65,7 @@
     "window.bring_to_front": "全てを最前面に表示",
     "help.manual": "オンラインマニュアル",
     "help.check_updates": "アップデートを確認…",
+    "help.activate": "ライセンス認証 / シリアル入力…",
     "help.about": "MAGDAについて"
   },
   "transport": {
@@ -472,5 +473,36 @@
     "upload_copy_failed": "",
     "upload_create_dir_failed": "",
     "upload_success": ""
+  },
+  "license": {
+    "dialog_title": "MAGDA をライセンス認証",
+    "enter_key_prompt": "ライセンスキーを入力してください（形式 BDST/BDPR-XXXX-XXXX-XXXX-XXXX）：\nデバイスID: {device}",
+    "serial": "ライセンスキー",
+    "activate": "認証",
+    "cancel": "キャンセル",
+    "quit": "終了",
+    "activate_ok_title": "認証に成功しました",
+    "activate_fail_title": "認証に失敗しました",
+    "activated_msg": "認証しました！エディション：{edition}（{key}）",
+    "trial_title": "MAGDA 未認証 · 体験版",
+    "trial_msg": "未認証 —— {run} 回目の体験、今回は {min} 分間利用できます。\nルール：初回30分、2回目10分、その後は認証が必要です。\n\n今すぐライセンスキーを入力しますか、それとも体験を開始しますか？",
+    "enter_key": "キーを入力して認証",
+    "start_trial": "体験を開始",
+    "trial_ended_title": "体験終了",
+    "locked_msg": "MAGDA の体験時間を使い切りました（30分＋10分）。続けるにはライセンスキーを入力してください。",
+    "trial_over_title": "体験終了",
+    "trial_over_msg": "今回の体験時間（{min}分）が終了しました。MAGDA を終了します。続けるには認証してください。",
+    "err": {
+      "NOT_FOUND": "このシリアル番号は見つかりません",
+      "ALREADY_ACTIVATED": "このキーは別のデバイスで既に認証済みです（1キー1デバイス）",
+      "REVOKED": "このキーは無効化／返金されています",
+      "WRONG_PRODUCT": "キーが製品と一致しません（MAGDA は BD 始まりのみ）",
+      "BAD_CHECKSUM": "キーの検証に失敗しました（入力をご確認ください）",
+      "BAD_FORMAT": "キーの形式が正しくありません",
+      "RATE_LIMITED": "認証の試行が多すぎます。しばらくしてからお試しください",
+      "NETWORK": "ネットワークエラー：認証サーバーに接続できません（プロキシ使用時は clash ポート 7897 をご確認ください）",
+      "BAD_TOKEN": "認証トークンの署名検証に失敗しました",
+      "UNKNOWN": "認証に失敗しました"
+    }
   }
 }
