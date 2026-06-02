@@ -266,8 +266,42 @@ TEST_CASE("MIDI clip split - edge cases", "[midi][clip][split][edge]") {
         REQUIRE(rightClip->midiNotes[1].startBeat == Catch::Approx(2.0));
     }
 
-    SECTION("Split empty MIDI clip") {
-        ClipId clipId = clipManager.createMidiClip(trackId, 0.0, 4.0, ClipView::Arrangement);
+    SECTION("Split left-trimmed clip keeps notes on both sides (regression: empty left)") {
+        // Repro for the "left clip becomes empty after split" bug.
+        // A clip that was left-trimmed has midiTrimOffset != 0, which shifts the
+        // visible content window. Notes are stored in content coords starting at
+        // midiTrimOffset, so the split boundary must account for it.
+        //
+        // Clip: 0-4s (8 beats), trimmed left by 4 beats -> visible window [4, 12).
+        // Notes placed across the window: beats 4, 6, 8, 10.
+        ClipId clipId = createMidiClipWithNotes(trackId, 0.0, 4.0, {4.0, 6.0, 8.0, 10.0});
+        auto* clip0 = clipManager.getClip(clipId);
+        REQUIRE(clip0 != nullptr);
+        clip0->midiTrimOffset = 4.0;
+
+        // Split in the middle (2s = 4 beats of length -> content split at 4 + 4 = 8).
+        SplitClipCommand splitCmd(clipId, BeatPosition{2.0 * 2.0});
+        REQUIRE(splitCmd.canExecute());
+        splitCmd.execute();
+
+        auto* leftClip = clipManager.getClip(clipId);
+        auto* rightClip = clipManager.getClip(splitCmd.getRightClipId());
+        REQUIRE(leftClip != nullptr);
+        REQUIRE(rightClip != nullptr);
+
+        // Left keeps notes before content beat 8 (i.e. 4, 6); right keeps 8, 10.
+        REQUIRE(leftClip->midiNotes.size() == 2);
+        REQUIRE(leftClip->midiNotes[0].startBeat == Catch::Approx(4.0));
+        REQUIRE(leftClip->midiNotes[1].startBeat == Catch::Approx(6.0));
+
+        // Right notes shifted left by leftLengthBeats (4): 8->4, 10->6
+        // (right clip keeps the same midiTrimOffset window [4, ...)).
+        REQUIRE(rightClip->midiNotes.size() == 2);
+        REQUIRE(rightClip->midiNotes[0].startBeat == Catch::Approx(4.0));
+        REQUIRE(rightClip->midiNotes[1].startBeat == Catch::Approx(6.0));
+    }
+
+    SECTION("Split empty MIDI clip") {        ClipId clipId = clipManager.createMidiClip(trackId, 0.0, 4.0, ClipView::Arrangement);
 
         SplitClipCommand splitCmd(clipId, BeatPosition{2.0 * 2.0});
         REQUIRE(splitCmd.canExecute());

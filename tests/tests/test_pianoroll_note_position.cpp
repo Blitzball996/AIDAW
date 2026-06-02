@@ -22,6 +22,16 @@ double computeRelativeDisplayBeat(double noteStartBeat) {
     return noteStartBeat;
 }
 
+/// Mirrors PianoRollGridComponent::getNoteInsertPosition's range guard.
+/// Returns true when a double-click at `displayBeat` should create a note
+/// (i.e. the click falls within the clip's displayed horizontal span).
+/// clipDisplayStart/End are displayBeatForClipBeat(visibleStart) and
+/// displayBeatForClipBeat(visibleStart + length) respectively.
+bool clickShouldInsert(double displayBeat, double clipDisplayStart, double clipDisplayEnd) {
+    constexpr double kEdgeTolerance = 1e-6;
+    return !(displayBeat < clipDisplayStart - kEdgeTolerance || displayBeat >= clipDisplayEnd);
+}
+
 }  // namespace
 
 TEST_CASE("Piano roll note position - absolute mode", "[pianoroll][display]") {
@@ -74,5 +84,47 @@ TEST_CASE("Piano roll note position - relative mode", "[pianoroll][display]") {
         double pos1 = computeRelativeDisplayBeat(3.0);
         double pos2 = computeRelativeDisplayBeat(3.0);
         REQUIRE(pos1 == pos2);
+    }
+}
+
+TEST_CASE("Piano roll note insert guard - empty-area click rejected",
+          "[pianoroll][insert][regression]") {
+    // Regression for two related bugs:
+    //  - Problem 4: double-click in empty space jumped a phantom note to bar 1
+    //    (clipBeatForDisplayX clamped a negative beat to 0).
+    //  - Problem 6: a note inserted outside the visible range was stored but then
+    //    filtered out by clipMidiNoteToVisibleRange, so the clip looked empty.
+    // Both are prevented by rejecting clicks outside the clip's display span.
+
+    // Relative single-clip mode: clip displayed at [0, length).
+    SECTION("Relative mode: clip [0, 8)") {
+        const double clipDisplayStart = 0.0;
+        const double clipDisplayEnd = 8.0;  // 8 beats long
+
+        // Click before the clip (empty space to the left) -> rejected (no jump to bar 1)
+        REQUIRE_FALSE(clickShouldInsert(-3.0, clipDisplayStart, clipDisplayEnd));
+        // Click at/after the clip end -> rejected
+        REQUIRE_FALSE(clickShouldInsert(8.0, clipDisplayStart, clipDisplayEnd));
+        REQUIRE_FALSE(clickShouldInsert(12.0, clipDisplayStart, clipDisplayEnd));
+        // Click inside -> accepted
+        REQUIRE(clickShouldInsert(0.0, clipDisplayStart, clipDisplayEnd));
+        REQUIRE(clickShouldInsert(4.0, clipDisplayStart, clipDisplayEnd));
+        REQUIRE(clickShouldInsert(7.999, clipDisplayStart, clipDisplayEnd));
+    }
+
+    // Absolute mode with a left-trimmed clip at bar 3 (beat 8), visible window
+    // begins at midiTrimOffset; clip displayed at [8, 16).
+    SECTION("Absolute mode: clip displayed at [8, 16)") {
+        const double clipDisplayStart = 8.0;
+        const double clipDisplayEnd = 16.0;
+
+        // Clicking in the empty timeline before the clip -> rejected
+        REQUIRE_FALSE(clickShouldInsert(0.0, clipDisplayStart, clipDisplayEnd));
+        REQUIRE_FALSE(clickShouldInsert(7.0, clipDisplayStart, clipDisplayEnd));
+        // Clicking past the clip -> rejected
+        REQUIRE_FALSE(clickShouldInsert(16.0, clipDisplayStart, clipDisplayEnd));
+        // Clicking inside the clip -> accepted
+        REQUIRE(clickShouldInsert(8.0, clipDisplayStart, clipDisplayEnd));
+        REQUIRE(clickShouldInsert(12.5, clipDisplayStart, clipDisplayEnd));
     }
 }

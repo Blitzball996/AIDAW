@@ -375,12 +375,104 @@ target_link_libraries(magda_daw
     sfizz::sfizz
 )
 
+# ---------------------------------------------------------------------------
+# WebView2 SDK for the Tidal (Strudel) plugin (Windows only).
+#
+# The Strudel REPL is hosted in a juce::WebBrowserComponent. On macOS it uses
+# WKWebView and on Linux WebKitGTK — both need NO extra SDK (the resource
+# provider is available automatically with JUCE_WEB_BROWSER=1, and the Linux
+# WebKit deps are linked below). Only Windows needs the WebView2 SDK headers +
+# loader lib from the "Microsoft.Web.WebView2" NuGet package.
+#
+# To avoid forcing a manual NuGet install, we:
+#   1) use a locally-installed SDK if one is found (find_package / nuget cache), else
+#   2) auto-download the SDK package once (cached under the build dir, shows progress).
+# If both fail, the plugin still builds with a fallback editor and the rest of the
+# app is completely unaffected. Override the version with -DMAGDA_WEBVIEW2_VERSION
+# or point at a local package with -DJUCE_WEBVIEW2_PACKAGE_LOCATION.
+# ---------------------------------------------------------------------------
+set(MAGDA_STRUDEL_WEBVIEW2 OFF CACHE INTERNAL "WebView2 SDK available for Strudel")
+if(WIN32)
+    # (1) Already installed locally? (NuGet cache / JUCE_WEBVIEW2_PACKAGE_LOCATION)
+    find_package(WebView2 QUIET)
+
+    # (2) Otherwise auto-download the SDK nupkg (a plain zip) once.
+    if(NOT TARGET juce::juce_webview2)
+        set(MAGDA_WEBVIEW2_VERSION "1.0.1901.177"
+            CACHE STRING "Microsoft.Web.WebView2 SDK version to auto-download")
+        set(_wv2_root "${CMAKE_BINARY_DIR}/_webview2/${MAGDA_WEBVIEW2_VERSION}")
+        set(_wv2_zip  "${CMAKE_BINARY_DIR}/_webview2/webview2-${MAGDA_WEBVIEW2_VERSION}.zip")
+
+        if(NOT EXISTS "${_wv2_root}/build/native/include/WebView2.h")
+            if(NOT EXISTS "${_wv2_zip}")
+                message(STATUS "Tidal/Strudel: downloading WebView2 SDK ${MAGDA_WEBVIEW2_VERSION} (one-time)…")
+                file(DOWNLOAD
+                    "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/${MAGDA_WEBVIEW2_VERSION}"
+                    "${_wv2_zip}"
+                    SHOW_PROGRESS
+                    TLS_VERIFY ON
+                    STATUS _wv2_dl_status)
+                list(GET _wv2_dl_status 0 _wv2_dl_code)
+                if(NOT _wv2_dl_code EQUAL 0)
+                    file(REMOVE "${_wv2_zip}")
+                    message(WARNING "Tidal/Strudel: WebView2 SDK download failed (${_wv2_dl_status}). "
+                                    "Connect to the internet and reconfigure, or install the NuGet "
+                                    "package 'Microsoft.Web.WebView2' manually.")
+                endif()
+            endif()
+            if(EXISTS "${_wv2_zip}")
+                file(MAKE_DIRECTORY "${_wv2_root}")
+                file(ARCHIVE_EXTRACT INPUT "${_wv2_zip}" DESTINATION "${_wv2_root}")
+            endif()
+        endif()
+
+        # Build the juce::juce_webview2 target from the extracted SDK.
+        if(EXISTS "${_wv2_root}/build/native/include/WebView2.h")
+            if(CMAKE_GENERATOR_PLATFORM MATCHES "ARM64|arm64" OR
+               CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64|aarch64")
+                set(_wv2_arch arm64)
+            elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+                set(_wv2_arch x64)
+            else()
+                set(_wv2_arch x86)
+            endif()
+            set(_wv2_lib "${_wv2_root}/build/native/${_wv2_arch}/WebView2LoaderStatic.lib")
+            if(EXISTS "${_wv2_lib}" AND NOT TARGET juce_webview2)
+                add_library(juce_webview2 INTERFACE)
+                add_library(juce::juce_webview2 ALIAS juce_webview2)
+                target_include_directories(juce_webview2 INTERFACE "${_wv2_root}/build/native/include")
+                target_link_libraries(juce_webview2 INTERFACE "${_wv2_lib}")
+                message(STATUS "Tidal/Strudel: WebView2 SDK ready (${_wv2_arch}) at ${_wv2_root}")
+            endif()
+        endif()
+    endif()
+
+    # (3) Wire it in if available.
+    if(TARGET juce::juce_webview2)
+        set(MAGDA_STRUDEL_WEBVIEW2 ON CACHE INTERNAL "WebView2 SDK available for Strudel")
+        target_link_libraries(magda_daw PUBLIC juce::juce_webview2)
+        message(STATUS "Tidal/Strudel WebView REPL enabled (WebView2).")
+    else()
+        message(WARNING
+            "Tidal/Strudel: WebView2 SDK unavailable — building fallback editor (no REPL). "
+            "The rest of the app is unaffected. Reconnect to the internet and reconfigure to "
+            "auto-download it. (macOS/Linux do not need this.)")
+    endif()
+endif()
+
 target_compile_definitions(magda_daw
     PUBLIC
     JUCE_PLUGINHOST_VST3=1
     JUCE_PLUGINHOST_AU=1
     JUCE_MODAL_LOOPS_PERMITTED=1
     TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH=1
+    # Enable the JUCE WebBrowserComponent so the Tidal (Strudel) plugin can host
+    # the real Strudel REPL in a WebView2 (Windows) with the resource provider.
+    # JUCE_USE_WIN_WEBVIEW2 is only set when the WebView2 SDK was found at configure
+    # time (see MAGDA_STRUDEL_WEBVIEW2 below); otherwise the plugin builds with a
+    # fallback editor and the rest of the app is unaffected.
+    JUCE_WEB_BROWSER=1
+    $<$<BOOL:${MAGDA_STRUDEL_WEBVIEW2}>:JUCE_USE_WIN_WEBVIEW2=1>
     $<$<BOOL:${JUCE_ASIO_ENABLED}>:JUCE_ASIO=1>
 )
 

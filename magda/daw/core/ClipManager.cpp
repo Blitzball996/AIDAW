@@ -529,18 +529,32 @@ ClipId ClipManager::splitClipAtBeat(ClipId clipId, double splitBeat, double temp
                 rightClip.midiOffset = std::fmod(clip->midiOffset + phase, loopLen);
             }
         } else {
-            // Non-looped MIDI: partition notes by split position
-            double splitBeat = leftLengthBeats;
+            // Non-looped MIDI: partition notes by split position.
+            //
+            // note.startBeat lives in *content* coordinates whose visible window
+            // begins at getMidiVisibleRange().startBeat (== midiTrimOffset for a
+            // non-looped clip). The split point must be expressed in that same
+            // content domain. Comparing against the bare leftLengthBeats (a length,
+            // not a content position) sends ALL notes to the right half whenever the
+            // clip was left-trimmed (midiTrimOffset != 0), leaving the left clip
+            // mysteriously empty. When midiTrimOffset == 0 this is identical to the
+            // old behaviour, so existing splits are unaffected.
+            const double visibleStart = ClipOperations::getMidiVisibleRange(*clip).startBeat;
+            const double splitContentBeat = visibleStart + leftLengthBeats;
 
             std::vector<MidiNote> leftNotes;
             std::vector<MidiNote> rightNotes;
 
             for (const auto& note : clip->midiNotes) {
-                if (note.startBeat < splitBeat) {
+                if (note.startBeat < splitContentBeat) {
+                    // Starts before the cut -> stays in the left clip with its
+                    // original length preserved (Logic-style: keep the note data;
+                    // display clipping is handled by clipMidiNoteToVisibleRange).
                     leftNotes.push_back(note);
                 } else {
+                    // Shift into the right clip's content window (same midiTrimOffset).
                     MidiNote adjustedNote = note;
-                    adjustedNote.startBeat -= splitBeat;
+                    adjustedNote.startBeat -= leftLengthBeats;
                     rightNotes.push_back(adjustedNote);
                 }
             }

@@ -1585,6 +1585,22 @@ PianoRollGridComponent::getNoteInsertPosition(juce::Point<int> localPos) const {
         return std::nullopt;
     }
 
+    // Guard against the "jump to first bar" bug: a double-click in empty space
+    // outside the clip's horizontal span used to fall back to clipId_, and
+    // clipBeatForDisplayX would clamp the (negative) beat to 0, spawning a
+    // phantom note at the clip's first bar. Reject clicks whose display beat
+    // lies outside the target clip's displayed range. Vertical position (note
+    // number) is intentionally unconstrained — only horizontal range matters.
+    {
+        const auto visRange = ClipOperations::getMidiVisibleRange(*targetClip);
+        const double clipDisplayStart = displayBeatForClipBeat(targetClipId, visRange.startBeat);
+        const double clipDisplayEnd = displayBeatForClipBeat(targetClipId, visRange.endBeat());
+        constexpr double kEdgeTolerance = 1e-6;
+        if (displayBeat < clipDisplayStart - kEdgeTolerance || displayBeat >= clipDisplayEnd) {
+            return std::nullopt;
+        }
+    }
+
     NoteInsertPosition insertPos;
     insertPos.clipId = targetClipId;
     insertPos.beat = clipBeatForDisplayX(targetClipId, localPos.x);

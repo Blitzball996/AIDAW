@@ -1,342 +1,292 @@
 #include "StrudelPlugin.hpp"
 
-#include <choc/javascript/choc_javascript.h>
-#include <choc/javascript/choc_javascript_QuickJS.h>
+#include <juce_gui_extra/juce_gui_extra.h>
+
+#include <cmath>
+#include <cstring>
 
 namespace magda::daw::audio {
 
 const char* StrudelPlugin::xmlTypeName = "strudel";
 
-// JS Engine wrapper
-struct StrudelPlugin::JSEngine {
-    choc::javascript::Context ctx;
-    bool ready = false;
-
-    bool init() {
-        ctx = choc::javascript::createQuickJSContext();
-        if (!ctx) return false;
-
-        auto exeDir = juce::File::getSpecialLocation(
-            juce::File::currentExecutableFile).getParentDirectory();
-        auto strudelDir = exeDir.getChildFile("strudel");
-
-        // Browser polyfills
-        try {
-            ctx.evaluateExpression(
-                "var console={log:function(){},warn:function(){},error:function(){},"
-                "info:function(){},debug:function(){}};"
-                "var document={createElement:function(){return{style:{}}},body:{appendChild:function(){}},"
-                "addEventListener:function(){},removeEventListener:function(){},"
-                "dispatchEvent:function(){},createEvent:function(){return{initEvent:function(){}}}};"
-                "var navigator={userAgent:'QuickJS'};"
-                "var location={href:'',hostname:'localhost',protocol:'file:'};"
-                "var setTimeout=function(fn){fn();return 0};"
-                "var clearTimeout=function(){};"
-                "var setInterval=function(){return 0};"
-                "var clearInterval=function(){};"
-                "var requestAnimationFrame=function(){return 0};"
-                "var performance={now:function(){return 0}};"
-                "var AudioContext=function(){};"
-                "var SharedWorker=function(){this.port={onmessage:null,postMessage:function(){}};};"
-                "var Worker=function(){this.onmessage=null;this.postMessage=function(){};};"
-                "var URL=function(a){this.href=a;};"
-                "var window=globalThis;var self=globalThis;"
-            );
-        } catch (...) {
-            return false;
-        }
-
-        // Load Strudel bundle
-        auto bundleFile = strudelDir.getChildFile("strudel-core-bundle.js");
-        if (!bundleFile.existsAsFile()) return false;
-        auto bundle = bundleFile.loadFileAsString();
-
-        try {
-            ctx.evaluateExpression(bundle.toStdString());
-        } catch (...) {
-            return false;
-        }
-
-        // Load bridge
-        auto bridgeFile = strudelDir.getChildFile("strudel-bridge.js");
-        if (!bridgeFile.existsAsFile()) return false;
-        auto bridge = bridgeFile.loadFileAsString();
-
-        try {
-            ctx.evaluateExpression(bridge.toStdString());
-        } catch (...) {
-            return false;
-        }
-
-        ready = true;
-        return true;
-    }
-
-    juce::String setPattern(const juce::String& code) {
-        if (!ready) return "JS not ready";
-        try {
-            // Try as full JS expression (handles: mini("c3 e3"), note("c3").fast(2), etc.)
-            std::string js = "(function(){ try { var __r = (" + code.toStdString() +
-                "); if(__r && typeof __r.queryArc==='function'){__currentPattern=__r;return '';}"
-                "else{return 'Not a pattern';} } catch(e){return String(e.message||e);} })()";
-            auto result = ctx.evaluateExpression(js);
-            auto err = result.toString();
-            if (err.empty()) return {};
-
-            // Fallback: treat as mini notation string
-            result = ctx.invoke("__setPattern", code.toStdString());
-            return juce::String(result.toString());
-        } catch (const std::exception& e) {
-            return e.what();
-        } catch (...) {
-            return "Unknown JS error";
-        }
-    }
-
-    juce::String queryPattern(double start, double end) {
-        if (!ready) return "[]";
-        try {
-            auto result = ctx.invoke("__queryPattern", start, end);
-            return juce::String(result.toString());
-        } catch (...) {
-            return "[]";
-        }
-    }
-};
-
-// Note name to MIDI
-int StrudelPlugin::noteNameToMidi(const juce::String& name) {
-    static const int noteMap[] = {9,11,0,2,4,5,7}; // a b c d e f g
-    auto s = name.trim().toLowerCase();
-    if (s.isEmpty()) return -1;
-    if (s.containsOnly("0123456789")) return s.getIntValue();
-
-    char letter = s[0];
-    if (letter < 'a' || letter > 'g') return -1;
-    int note = noteMap[letter - 'a'];
-    int pos = 1;
-    if (pos < s.length() && s[pos] == '#') { note++; pos++; }
-    else if (pos < s.length() && s[pos] == 'b' && (pos+1 >= s.length() || s[pos+1] < 'a')) { note--; pos++; }
-    int octave = 4;
-    if (pos < s.length()) octave = s.substring(pos).getIntValue();
-    return note + (octave + 1) * 12;
-}
+//==============================================================================
+// Plugin
+//==============================================================================
 
 StrudelPlugin::StrudelPlugin(const te::PluginCreationInfo& info) : te::Plugin(info) {
     auto um = getUndoManager();
-    codeValue.referTo(state, juce::Identifier("code"), um, "c3 e3 g3 b3");
-    initJS();
+    codeValue.referTo(state, juce::Identifier("code"), um,
+                      "// Tidal (Strudel) — write a pattern, then press Play\n"
+                      "note(\"c3 e3 g3 b3\").sound(\"sawtooth\").lpf(800)");
+    fifoL_.assign(kFifoCapacity, 0.0f);
+    fifoR_.assign(kFifoCapacity, 0.0f);
 }
 
 StrudelPlugin::~StrudelPlugin() = default;
 
-void StrudelPlugin::initJS() {
-    js_ = std::make_unique<JSEngine>();
-    if (!js_->init()) {
-        lastError_ = "Failed to initialize JS runtime";
-        js_.reset();
-    }
-}
-
 void StrudelPlugin::initialise(const te::PluginInitialisationInfo& info) {
     sampleRate_ = info.sampleRate;
-    lastCyclePos_ = 0.0;
-    synth_.init((float)sampleRate_);
-    if (codeValue.get().isNotEmpty())
-        evaluate(codeValue.get());
+    // NOTE: deliberately does NOT evaluate the stored code here. The editor opens
+    // silent; sound only begins when the user presses Play in the REPL.
+    clearFifo();
 }
 
 void StrudelPlugin::deinitialise() {}
 
-void StrudelPlugin::reset() {
-    lastCyclePos_ = 0.0;
-    synth_.reset();
-}
+void StrudelPlugin::reset() { clearFifo(); }
 
-juce::String StrudelPlugin::evaluate(const juce::String& code) {
-    if (code.isEmpty()) return "Empty pattern";
-
-    // Try JS engine first (for full Strudel syntax)
-    if (js_ && js_->ready) {
-        auto err = js_->setPattern(code);
-        if (err.isEmpty()) {
-            patternActive_ = true;
-            lastError_ = {};
-            codeValue = code;
-            cachedCode_ = code;
-            // Pre-query one cycle to cache
-            auto json = js_->queryPattern(0.0, 1.0);
-            cachedEvents_.clear();
-            if (json.startsWith("[")) {
-                auto parsed = juce::JSON::parse(json);
-                if (auto* arr = parsed.getArray()) {
-                    for (const auto& item : *arr) {
-                        NoteEvent ev;
-                        auto noteVal = item.getProperty("note", 60);
-                        if (noteVal.isString())
-                            ev.note = noteNameToMidi(noteVal.toString());
-                        else
-                            ev.note = (int)noteVal;
-                        ev.onset = (double)item.getProperty("onset", 0.0);
-                        ev.duration = (double)item.getProperty("dur", 0.25);
-                        ev.velocity = (float)(double)item.getProperty("vel", 1.0);
-                        if (ev.note >= 0 && ev.note <= 127)
-                            cachedEvents_.push_back(ev);
-                    }
-                }
-            }
-            return {};
-        }
-        // JS failed, fall through to C++ parser
-    }
-
-    // Fallback: simple C++ mini notation parser
-    cachedEvents_.clear();
-    auto tokens = juce::StringArray::fromTokens(code.trim(), " \t\n,", "\"'");
-    tokens.removeEmptyStrings();
-    if (tokens.isEmpty()) { lastError_ = "No notes"; return lastError_; }
-
-    double step = 1.0 / tokens.size();
-    for (int i = 0; i < tokens.size(); ++i) {
-        auto token = tokens[i].trim();
-        if (token == "~" || token == "-" || token == ".") continue;
-        int midi = noteNameToMidi(token);
-        if (midi < 0 || midi > 127) continue;
-        cachedEvents_.push_back({midi, i * step, step * 0.9, 1.0f});
-    }
-
-    if (cachedEvents_.empty()) { lastError_ = "No valid notes"; return lastError_; }
-    patternActive_ = true;
-    lastError_ = {};
-    codeValue = code;
-    cachedCode_ = code;
-    return {};
-}
-
-juce::String StrudelPlugin::getCode() const { return codeValue.get(); }
-void StrudelPlugin::setCode(const juce::String& code) { evaluate(code); }
-juce::String StrudelPlugin::getLastError() const { return lastError_; }
-bool StrudelPlugin::hasActivePattern() const { return patternActive_; }
-
-void StrudelPlugin::applyToBuffer(const te::PluginRenderContext& rc) {
-    if (!patternActive_ || rc.destBuffer == nullptr)
-        return;
-
-    auto editTime = rc.editTime;
-    double bpm = edit.tempoSequence.getBpmAt(editTime.getStart());
-    double cps = bpm / 60.0 / 4.0;
-
-    int numSamples = rc.bufferNumSamples;
-    int startSample = rc.bufferStartSample;
-    double blockSeconds = numSamples / sampleRate_;
-    double blockCycles = blockSeconds * cps;
-
-    double startCycle = lastCyclePos_;
-    double endCycle = startCycle + blockCycles;
-
-    // Trigger new notes from cached pattern
-    for (const auto& ev : cachedEvents_) {
-        int firstCycle = (int)startCycle;
-        int lastCycleInt = (int)endCycle;
-        for (int c = firstCycle; c <= lastCycleInt; ++c) {
-            double eventTime = c + ev.onset;
-            if (eventTime >= startCycle && eventTime < endCycle) {
-                synth_.noteOn(ev.note, ev.velocity, eventTime, ev.duration);
-            }
-        }
-    }
-
-    // Release voices past their duration
-    synth_.releaseVoicesAfter(endCycle);
-
-    // Render audio
-    int numChannels = rc.destBuffer->getNumChannels();
-    for (int i = 0; i < numSamples; ++i) {
-        float sample = synth_.render();
-        if (numChannels >= 1)
-            rc.destBuffer->addSample(0, startSample + i, sample);
-        if (numChannels >= 2)
-            rc.destBuffer->addSample(1, startSample + i, sample);
-    }
-
-    lastCyclePos_ = endCycle;
+void StrudelPlugin::clearFifo() {
+    writePos_.store(0, std::memory_order_relaxed);
+    readPos_.store(0, std::memory_order_relaxed);
+    resamplePhase_ = 0.0;
+    prevL_ = prevR_ = 0.0f;
+    havePrev_ = false;
 }
 
 void StrudelPlugin::restorePluginStateFromValueTree(const juce::ValueTree& v) {
     if (v.hasProperty("code"))
         codeValue = v.getProperty("code").toString();
-    if (codeValue.get().isNotEmpty())
-        evaluate(codeValue.get());
 }
 
-// Editor
+//==============================================================================
+// PCM capture (message thread) -> resample -> lock-free FIFO
+//==============================================================================
+
+void StrudelPlugin::pushCapturedAudio(const float* left, const float* right, int numFrames,
+                                      double srcSampleRate) {
+    if (numFrames <= 0 || srcSampleRate <= 0.0 || sampleRate_ <= 0.0 || left == nullptr ||
+        right == nullptr)
+        return;
+
+    const double step = srcSampleRate / sampleRate_;  // input samples per output sample
+
+    // sampleAt(i): i == -1 refers to the carried previous sample from the last chunk.
+    auto sampleAt = [](const float* buf, int i, float prev) -> float {
+        return (i < 0) ? prev : buf[i];
+    };
+
+    int w = writePos_.load(std::memory_order_relaxed);
+    const int r = readPos_.load(std::memory_order_acquire);
+
+    double pos = havePrev_ ? resamplePhase_ : 0.0;
+
+    // Produce output samples at pos, pos+step, ... up to the last available point.
+    while (pos <= (double)(numFrames - 1) + 1e-9) {
+        const int i0 = (int)std::floor(pos);
+        const float frac = (float)(pos - i0);
+
+        const float l0 = sampleAt(left, i0, prevL_);
+        const float l1 = sampleAt(left, i0 + 1, prevL_);
+        const float r0 = sampleAt(right, i0, prevR_);
+        const float r1 = sampleAt(right, i0 + 1, prevR_);
+
+        const float outL = l0 + (l1 - l0) * frac;
+        const float outR = r0 + (r1 - r0) * frac;
+
+        // Drop new samples if the consumer is too far behind (never clobber unread data).
+        if (w - r < kFifoCapacity - 1) {
+            const int idx = w & (kFifoCapacity - 1);
+            fifoL_[(size_t)idx] = outL;
+            fifoR_[(size_t)idx] = outR;
+            ++w;
+        }
+        pos += step;
+    }
+
+    writePos_.store(w, std::memory_order_release);
+
+    // Carry: shift the origin so the next chunk's sample[0] aligns with index numFrames.
+    resamplePhase_ = pos - numFrames;
+    prevL_ = left[numFrames - 1];
+    prevR_ = right[numFrames - 1];
+    havePrev_ = true;
+}
+
+//==============================================================================
+// Audio thread: drain FIFO into the track buffer
+//==============================================================================
+
+void StrudelPlugin::applyToBuffer(const te::PluginRenderContext& rc) {
+    if (rc.destBuffer == nullptr)
+        return;
+
+    const int numSamples = rc.bufferNumSamples;
+    const int startSample = rc.bufferStartSample;
+    const int numChannels = rc.destBuffer->getNumChannels();
+
+    int r = readPos_.load(std::memory_order_relaxed);
+    const int w = writePos_.load(std::memory_order_acquire);
+    const int avail = w - r;
+
+    const int toCopy = juce::jlimit(0, numSamples, avail);
+
+    for (int i = 0; i < toCopy; ++i) {
+        const int idx = r & (kFifoCapacity - 1);
+        const float l = fifoL_[(size_t)idx];
+        const float ri = fifoR_[(size_t)idx];
+        ++r;
+        if (numChannels >= 1) rc.destBuffer->addSample(0, startSample + i, l);
+        if (numChannels >= 2) rc.destBuffer->addSample(1, startSample + i, ri);
+    }
+
+    readPos_.store(r, std::memory_order_release);
+    // Underflow (toCopy < numSamples) leaves the remainder of the block as silence.
+}
+
+//==============================================================================
+// Editor — hosts the real Strudel REPL in a WebView2
+//==============================================================================
+
+#if JUCE_WEB_BROWSER_RESOURCE_PROVIDER_AVAILABLE
+
 class StrudelEditorComponent : public te::Plugin::EditorComponent {
   public:
-    StrudelEditorComponent(StrudelPlugin& p) : plugin_(p) {
-        document_.replaceAllContent(plugin_.getCode());
-        editor_ = std::make_unique<juce::CodeEditorComponent>(document_, nullptr);
-        editor_->setColour(juce::CodeEditorComponent::backgroundColourId, juce::Colour(0xff1e1e2e));
-        editor_->setColour(juce::CodeEditorComponent::defaultTextColourId, juce::Colour(0xffcdd6f4));
-        editor_->setTabSize(2, true);
-        addAndMakeVisible(*editor_);
+    explicit StrudelEditorComponent(StrudelPlugin& p) : plugin_(p) {
+        using WB = juce::WebBrowserComponent;
 
-        runBtn_.setButtonText("Run");
-        runBtn_.onClick = [this] { run(); };
-        addAndMakeVisible(runBtn_);
+        auto strudelDir = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+                              .getParentDirectory()
+                              .getChildFile("strudel");
 
-        status_.setJustificationType(juce::Justification::topLeft);
-        updateStatus();
-        addAndMakeVisible(status_);
+        auto options =
+            WB::Options{}
+                .withBackend(WB::Options::Backend::webview2)
+                .withWinWebView2Options(
+                    WB::Options::WinWebView2{}
+                        .withUserDataFolder(
+                            juce::File::getSpecialLocation(juce::File::tempDirectory))
+                        .withBackgroundColour(juce::Colour(0xff1e1e2e)))
+                .withNativeIntegrationEnabled(true)
+                .withResourceProvider(
+                    [strudelDir](const juce::String& path)
+                        -> std::optional<WB::Resource> {
+                        return provideResource(strudelDir, path);
+                    })
+                .withNativeFunction(
+                    juce::Identifier("jucePcmChunk"),
+                    [this](const juce::Array<juce::var>& args,
+                           WB::NativeFunctionCompletion completion) {
+                        handlePcmChunk(args);
+                        completion(juce::var());
+                    })
+                .withEventListener(juce::Identifier("strudelReady"),
+                                   [this](juce::var) { onStrudelReady(); })
+                .withEventListener(juce::Identifier("strudelCode"),
+                                   [this](juce::var payload) {
+                                       if (auto* o = payload.getDynamicObject())
+                                           plugin_.setCode(o->getProperty("code").toString());
+                                   });
 
-        setSize(680, 440);
+        web_ = std::make_unique<WB>(options);
+        addAndMakeVisible(*web_);
+        web_->goToURL(WB::getResourceProviderRoot());
+
+        setSize(760, 520);
     }
 
     bool allowWindowResizing() override { return true; }
     juce::ComponentBoundsConstrainer* getBoundsConstrainer() override { return nullptr; }
 
     void resized() override {
-        auto area = getLocalBounds().reduced(6);
-        auto bottom = area.removeFromBottom(60);
-        runBtn_.setBounds(bottom.removeFromTop(28).removeFromLeft(100));
-        bottom.removeFromTop(4);
-        status_.setBounds(bottom);
-        editor_->setBounds(area);
-    }
-
-    bool keyPressed(const juce::KeyPress& key) override {
-        if (key.getModifiers().isCtrlDown() && key.getKeyCode() == juce::KeyPress::returnKey) {
-            run();
-            return true;
-        }
-        return false;
+        if (web_)
+            web_->setBounds(getLocalBounds());
     }
 
   private:
-    void run() {
-        auto err = plugin_.evaluate(document_.getAllContent());
-        updateStatus();
+    // Serve index.html / bundles / samples from the on-disk strudel resource dir.
+    static std::optional<juce::WebBrowserComponent::Resource>
+    provideResource(const juce::File& root, const juce::String& path) {
+        using WB = juce::WebBrowserComponent;
+        if (path.contains(".."))
+            return std::nullopt;
+
+        juce::File file = (path == "/")
+                              ? root.getChildFile("index.html")
+                              : root.getChildFile(path.trimCharactersAtStart("/"));
+        if (!file.existsAsFile())
+            return std::nullopt;
+
+        juce::MemoryBlock mb;
+        if (!file.loadFileAsData(mb))
+            return std::nullopt;
+
+        std::vector<std::byte> data((size_t)mb.getSize());
+        if (mb.getSize() > 0)
+            std::memcpy(data.data(), mb.getData(), mb.getSize());
+
+        const auto ext = file.getFileExtension().toLowerCase();
+        juce::String mime = "application/octet-stream";
+        if (ext == ".html") mime = "text/html";
+        else if (ext == ".js" || ext == ".mjs") mime = "text/javascript";
+        else if (ext == ".css") mime = "text/css";
+        else if (ext == ".json") mime = "application/json";
+        else if (ext == ".wav") mime = "audio/wav";
+        else if (ext == ".mp3") mime = "audio/mpeg";
+        else if (ext == ".ogg") mime = "audio/ogg";
+
+        return WB::Resource{std::move(data), mime};
     }
 
-    void updateStatus() {
-        auto err = plugin_.getLastError();
-        if (err.isEmpty() && plugin_.hasActivePattern()) {
-            status_.setColour(juce::Label::textColourId, juce::Colour(0xffa6e3a1));
-            status_.setText("Pattern active", juce::dontSendNotification);
-        } else if (err.isNotEmpty()) {
-            status_.setColour(juce::Label::textColourId, juce::Colour(0xfff38ba8));
-            status_.setText(err, juce::dontSendNotification);
-        } else {
-            status_.setColour(juce::Label::textColourId, juce::Colour(0xff89b4fa));
-            status_.setText("Type a pattern and press Run", juce::dontSendNotification);
+    void onStrudelReady() {
+        // Push the persisted pattern text into the REPL editor (does NOT play).
+        auto code = plugin_.getCode();
+        auto js = "window.strudelSetCode(" + code.quoted() + ");";
+        if (web_)
+            web_->evaluateJavascript(js, nullptr);
+    }
+
+    void handlePcmChunk(const juce::Array<juce::var>& args) {
+        if (args.size() < 3)
+            return;
+        const auto* lArr = args[0].getArray();
+        const auto* rArr = args[1].getArray();
+        const double srcRate = (double)args[2];
+        if (lArr == nullptr || rArr == nullptr)
+            return;
+
+        const int n = juce::jmin(lArr->size(), rArr->size());
+        if (n <= 0)
+            return;
+
+        scratchL_.resize((size_t)n);
+        scratchR_.resize((size_t)n);
+        for (int i = 0; i < n; ++i) {
+            scratchL_[(size_t)i] = (float)(double)lArr->getReference(i);
+            scratchR_[(size_t)i] = (float)(double)rArr->getReference(i);
         }
+        plugin_.pushCapturedAudio(scratchL_.data(), scratchR_.data(), n, srcRate);
     }
 
     StrudelPlugin& plugin_;
-    juce::CodeDocument document_;
-    std::unique_ptr<juce::CodeEditorComponent> editor_;
-    juce::TextButton runBtn_;
-    juce::Label status_;
+    std::unique_ptr<juce::WebBrowserComponent> web_;
+    std::vector<float> scratchL_, scratchR_;
 };
+
+#else  // !JUCE_WEB_BROWSER_RESOURCE_PROVIDER_AVAILABLE
+
+// Fallback editor when the WebView2 SDK is unavailable at build time. The plugin
+// still loads (and audio routing works once a WebView build is supplied), but the
+// REPL UI requires the WebView2 backend.
+class StrudelEditorComponent : public te::Plugin::EditorComponent {
+  public:
+    explicit StrudelEditorComponent(StrudelPlugin&) {
+        label_.setJustificationType(juce::Justification::centred);
+        label_.setText("Tidal (Strudel) requires the WebView2 backend.\n\n"
+                       "Install the NuGet package \"Microsoft.Web.WebView2\" and rebuild "
+                       "with JUCE_USE_WIN_WEBVIEW2 enabled.",
+                       juce::dontSendNotification);
+        addAndMakeVisible(label_);
+        setSize(560, 220);
+    }
+    bool allowWindowResizing() override { return true; }
+    juce::ComponentBoundsConstrainer* getBoundsConstrainer() override { return nullptr; }
+    void resized() override { label_.setBounds(getLocalBounds().reduced(20)); }
+
+  private:
+    juce::Label label_;
+};
+
+#endif  // JUCE_WEB_BROWSER_RESOURCE_PROVIDER_AVAILABLE
 
 std::unique_ptr<te::Plugin::EditorComponent> StrudelPlugin::createEditor() {
     return std::make_unique<StrudelEditorComponent>(*this);

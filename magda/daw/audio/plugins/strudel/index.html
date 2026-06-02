@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tidal (Strudel)</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; height: 100%; background: #1e1e2e; color: #cdd6f4;
+      font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
+    #app { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
+    #toolbar { display: flex; gap: 6px; align-items: center; flex: 0 0 auto;
+      padding: 6px 8px; background: #181825; border-bottom: 1px solid #313244; z-index: 10; }
+    button { background: #313244; color: #cdd6f4; border: 1px solid #45475a;
+      border-radius: 5px; padding: 5px 13px; font: inherit; cursor: pointer; }
+    button:hover { background: #45475a; }
+    button#play { background: #a6e3a1; color: #11111b; border-color: #a6e3a1; font-weight: 600; }
+    button#stop { background: #f38ba8; color: #11111b; border-color: #f38ba8; }
+    #status { font-size: 12px; color: #89b4fa; white-space: pre-wrap; margin-left: 4px; }
+    #editor { flex: 1 1 auto; position: relative; overflow: auto; }
+    .cm-editor { height: 100%; font-size: 14px; }
+
+    /* ---- Loading overlay ---- */
+    #loader { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 18px;
+      background: radial-gradient(1200px 600px at 50% 30%, #232338 0%, #16161f 70%, #0e0e16 100%);
+      transition: opacity .5s ease; }
+    #loader.hidden { opacity: 0; pointer-events: none; }
+    #logo { font-size: 30px; font-weight: 800; letter-spacing: 3px;
+      background: linear-gradient(90deg, #f38ba8, #fab387, #f9e2af, #a6e3a1, #89b4fa, #cba6f7);
+      background-size: 300% 100%; -webkit-background-clip: text; background-clip: text;
+      color: transparent; animation: hue 6s linear infinite; }
+    @keyframes hue { to { background-position: 300% 0; } }
+    .bar-wrap { width: 440px; max-width: 80vw; }
+    .bar-track { height: 14px; border-radius: 8px; background: #2a2a3c;
+      overflow: hidden; box-shadow: inset 0 1px 3px #0008; position: relative; }
+    .bar-fill { height: 100%; width: 0%;
+      background: linear-gradient(90deg, #89b4fa, #cba6f7, #f38ba8);
+      background-size: 200% 100%; border-radius: 8px;
+      transition: width .35s cubic-bezier(.4,1.3,.5,1); animation: shimmer 1.6s linear infinite; }
+    @keyframes shimmer { to { background-position: 200% 0; } }
+    .bar-fill::after { content:''; position:absolute; top:0; right:0; width:40px; height:100%;
+      background: linear-gradient(90deg, transparent, #ffffff55); }
+    .bar-row { display:flex; justify-content:space-between; margin-top:7px;
+      font-size:12px; color:#9399b2; }
+    #loadPct { color:#cba6f7; font-weight:700; }
+    #gameHint { font-size:12px; color:#6c7086; }
+    #gameWrap { border:1px solid #313244; border-radius:10px; background:#12121b;
+      box-shadow:0 6px 30px #0006; }
+    #gameCanvas { display:block; border-radius:10px; }
+    #gameBar { display:flex; align-items:center; justify-content:space-between;
+      width:360px; max-width:80vw; font-size:12px; color:#9399b2; }
+    #gameName { color:#a6e3a1; font-weight:700; }
+    .mini-btn { padding:3px 10px; font-size:11px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="toolbar">
+      <button id="play" title="Ctrl+Enter">▶ Play</button>
+      <button id="stop" title="Ctrl+.">■ Stop</button>
+      <span id="status">Loading…</span>
+    </div>
+    <div id="editor"></div>
+  </div>
+
+  <div id="loader">
+    <div id="logo">T I D A L</div>
+    <div class="bar-wrap">
+      <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+      <div class="bar-row"><span id="loadPhase">Starting engine…</span><span id="loadPct">0%</span></div>
+    </div>
+    <div id="gameBar">
+      <span>🎮 <span id="gameName">Loading…</span></span>
+      <button class="mini-btn" id="gameSwitch">Next game ⟳</button>
+    </div>
+    <div id="gameWrap"><canvas id="gameCanvas" width="360" height="240"></canvas></div>
+    <div id="gameHint">Use ← → ↑ ↓ / mouse / click to play while Tidal loads</div>
+  </div>
+
+  <script>
+  // ===== Mini-games shown while Tidal loads (original simple arcade games) =====
+  (function () {
+    const cv = document.getElementById('gameCanvas');
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    const keys = {};
+    window.addEventListener('keydown', (e) => {
+      keys[e.key] = true;
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+    let mouseX = W / 2;
+    cv.addEventListener('mousemove', (e) => {
+      const r = cv.getBoundingClientRect();
+      mouseX = (e.clientX - r.left) * (W / r.width);
+    });
+    let clicked = false;
+    cv.addEventListener('mousedown', () => { clicked = true; });
+
+    const COL = { bg:'#12121b', fg:'#cdd6f4', a:'#89b4fa', b:'#a6e3a1', c:'#f38ba8',
+                  d:'#f9e2af', e:'#cba6f7' };
+    function txt(s, x, y, c, sz) { ctx.fillStyle = c || COL.fg; ctx.font = (sz||14)+'px ui-monospace, monospace'; ctx.fillText(s, x, y); }
+
+    // ---- Game 1: Catch — move paddle (←/→ or mouse) to catch falling notes ----
+    function CatchGame() {
+      let px = W/2, score = 0, drops = [], t = 0;
+      return {
+        name: 'Catch the Notes',
+        step() {
+          t++;
+          if (keys['ArrowLeft']) px -= 6;
+          if (keys['ArrowRight']) px += 6;
+          px += (mouseX - px) * 0.12;
+          px = Math.max(28, Math.min(W-28, px));
+          if (t % 32 === 0) drops.push({ x: 30+Math.random()*(W-60), y:-10, v:1.6+Math.random()*1.8, ch:'♪♫♩♬'[Math.floor(Math.random()*4)] });
+          ctx.fillStyle = COL.bg; ctx.fillRect(0,0,W,H);
+          for (const d of drops) {
+            d.y += d.v;
+            txt(d.ch, d.x-7, d.y, COL.e, 18);
+            if (d.y > H-26 && Math.abs(d.x-px) < 32) { d.hit = true; score++; }
+          }
+          drops = drops.filter(d => d.y < H+12 && !d.hit);
+          ctx.fillStyle = COL.a; ctx.fillRect(px-28, H-16, 56, 8);
+          txt('Score '+score, 8, 18, COL.b);
+        }
+      };
+    }
+
+    // ---- Game 2: Dodger — steer ship (←/→) to avoid blocks ----
+    function DodgeGame() {
+      let px = W/2, t = 0, score = 0, obs = [], dead = false;
+      return {
+        name: 'Dodger',
+        step() {
+          ctx.fillStyle = COL.bg; ctx.fillRect(0,0,W,H);
+          if (dead) {
+            txt('Crashed! click to retry', W/2-92, H/2, COL.c);
+            txt('Score '+score, W/2-34, H/2+22, COL.d);
+            if (clicked) { dead=false; obs=[]; score=0; t=0; px=W/2; }
+            return;
+          }
+          t++;
+          if (keys['ArrowLeft']) px -= 5;
+          if (keys['ArrowRight']) px += 5;
+          px += (mouseX - px) * 0.1;
+          px = Math.max(14, Math.min(W-14, px));
+          if (t % 26 === 0) obs.push({ x: 14+Math.random()*(W-28), y:-14, v:2+t*0.002 });
+          for (const o of obs) {
+            o.y += o.v;
+            ctx.fillStyle = COL.c; ctx.fillRect(o.x-12, o.y-12, 24, 24);
+            if (Math.abs(o.x-px) < 24 && Math.abs(o.y-(H-30)) < 22) dead = true;
+          }
+          obs = obs.filter(o => o.y < H+16);
+          score = Math.floor(t/10);
+          ctx.fillStyle = COL.b;
+          ctx.beginPath(); ctx.moveTo(px,H-42); ctx.lineTo(px-13,H-18); ctx.lineTo(px+13,H-18); ctx.fill();
+          txt('Score '+score, 8, 18, COL.b);
+        }
+      };
+    }
+
+    // ---- Game 3: Bounce — keep the ball up with a mouse/←→ paddle ----
+    function BounceGame() {
+      let px=W/2, bx=W/2, by=40, vx=2.4, vy=2.2, score=0, dead=false;
+      return {
+        name: 'Keep It Up',
+        step() {
+          ctx.fillStyle = COL.bg; ctx.fillRect(0,0,W,H);
+          if (dead) {
+            txt('Dropped! click to retry', W/2-92, H/2, COL.c);
+            txt('Bounces '+score, W/2-40, H/2+22, COL.d);
+            if (clicked) { dead=false; bx=W/2; by=40; vx=2.4; vy=2.2; score=0; }
+            return;
+          }
+          if (keys['ArrowLeft']) px -= 6;
+          if (keys['ArrowRight']) px += 6;
+          px += (mouseX - px) * 0.18;
+          px = Math.max(34, Math.min(W-34, px));
+          bx += vx; by += vy; vy += 0.08;
+          if (bx < 8 || bx > W-8) vx *= -1;
+          if (by < 8) vy *= -1;
+          if (by > H-24 && Math.abs(bx-px) < 36) { vy = -Math.abs(vy) - 0.4; score++; }
+          if (by > H) dead = true;
+          ctx.fillStyle = COL.d; ctx.beginPath(); ctx.arc(bx, by, 8, 0, 7); ctx.fill();
+          ctx.fillStyle = COL.a; ctx.fillRect(px-34, H-12, 68, 7);
+          txt('Bounces '+score, 8, 18, COL.b);
+        }
+      };
+    }
+
+    const factories = [CatchGame, DodgeGame, BounceGame];
+    let idx = Math.floor(Math.random()*factories.length);
+    let game = factories[idx]();
+    const gameName = document.getElementById('gameName');
+    gameName.textContent = game.name;
+    document.getElementById('gameSwitch').addEventListener('click', () => {
+      idx = (idx+1) % factories.length; game = factories[idx](); gameName.textContent = game.name;
+    });
+
+    let raf;
+    function loop() { try { game.step(); } catch (e) {} clicked = false; raf = requestAnimationFrame(loop); }
+    loop();
+    window.__stopMiniGames = () => { cancelAnimationFrame(raf); };
+  })();
+  </script>
+
+  <script type="module">
+    import {
+      StrudelMirror, codemirrorSettings,
+      getDrawContext, silence, evalScope, transpiler,
+      getAudioContext, webaudioOutput, initAudioOnFirstClick,
+      registerSynthSounds, samples, aliasBank,
+      getSuperdoughAudioController,
+      slider, sliderWithID,
+      hydra, soundfonts, midi, serial, gamepad, motion,
+    } from '/strudel-bundle.js';
+
+    const $status = document.getElementById('status');
+    const $play = document.getElementById('play');
+    const $stop = document.getElementById('stop');
+    const $editor = document.getElementById('editor');
+    const $loader = document.getElementById('loader');
+    const $barFill = document.getElementById('barFill');
+    const $loadPct = document.getElementById('loadPct');
+    const $loadPhase = document.getElementById('loadPhase');
+
+    const juce = (typeof window !== 'undefined' && window.__JUCE__ && window.__JUCE__.backend) || null;
+    const emit = (id, obj) => { try { juce && juce.emitEvent(id, obj || {}); } catch (e) {} };
+    const callNative = (name, args) => { try { return juce && juce.callFunction(name, args); } catch (e) {} };
+    const setStatus = (t, c) => { $status.textContent = t; $status.style.color = c || '#89b4fa'; };
+
+    // ---- Progress helper: smoothly eases the bar toward a target % ----
+    let target = 0, shown = 0;
+    function setProgress(pct, phase) {
+      target = Math.max(target, Math.min(100, pct));
+      if (phase) $loadPhase.textContent = phase;
+    }
+    (function tick() {
+      shown += (target - shown) * 0.18;
+      $barFill.style.width = shown.toFixed(1) + '%';
+      $loadPct.textContent = Math.round(shown) + '%';
+      if (shown < 99.5) requestAnimationFrame(tick);
+      else { $barFill.style.width = '100%'; $loadPct.textContent = '100%'; }
+    })();
+    function hideLoader() {
+      setProgress(100, 'Ready');
+      setTimeout(() => {
+        $loader.classList.add('hidden');
+        window.__stopMiniGames && window.__stopMiniGames();
+        setTimeout(() => $loader.remove(), 600);
+      }, 350);
+    }
+
+    let editor = null;
+
+    // Load the optional feature packages into the eval scope (defensive: a failure
+    // in one — e.g. hydra needs WebGL, midi needs a device — never blocks the rest).
+    async function loadFeatureScopes() {
+      const mods = { hydra, soundfonts, midi, serial, gamepad, motion };
+      for (const [name, mod] of Object.entries(mods)) {
+        try { await evalScope(mod); } catch (e) {
+          emit('strudelError', { message: name + ' scope: ' + String((e && e.message) || e) });
+        }
+      }
+      // soundfonts registration (GM instruments) if available
+      try { soundfonts && soundfonts.registerSoundfonts && await soundfonts.registerSoundfonts(); } catch (e) {}
+    }
+
+    // Prebake: synth sounds, slider runtime, feature packages, full sample set.
+    async function prebake() {
+      setProgress(35, 'Registering synths & features…');
+      try { await evalScope({ slider, sliderWithID }); } catch (e) {}
+      await registerSynthSounds().catch(() => {});
+      await loadFeatureScopes();
+
+      setProgress(55, 'Loading samples…');
+      // Local offline drum machines first (works with no internet).
+      const jobs = [
+        samples('/samples/strudel-offline.json', window.location.origin + '/samples/').catch(() => {}),
+      ];
+      // Full canonical strudel.cc set — streams on demand from GitHub.
+      const ds = 'https://raw.githubusercontent.com/felixroos/dough-samples/main';
+      const tc = 'https://raw.githubusercontent.com/tidalcycles/uzu-drumkit/main';
+      const ts = 'https://raw.githubusercontent.com/todepond/samples/main';
+      const remote = [
+        `${ds}/tidal-drum-machines.json`, `${ds}/piano.json`, `${ds}/Dirt-Samples.json`,
+        `${ds}/vcsl.json`, `${ds}/mridangam.json`, `${tc}/strudel.json`,
+      ];
+      let done = 0;
+      for (const url of remote) {
+        jobs.push(Promise.resolve(samples(url)).then(() => {
+          done++; setProgress(55 + Math.round(done / remote.length * 35), 'Loading samples…');
+        }).catch(() => { done++; }));
+      }
+      try { aliasBank(`${ts}/tidal-drum-machines-alias.json`); } catch (e) {}
+      await Promise.all(jobs);
+      setProgress(92, 'Finishing…');
+    }
+
+    // ---- PCM capture: tap superdough master gain, forward Float32 to C++ ----
+    let pcmInstalled = false;
+    async function installPcmCapture() {
+      if (pcmInstalled) return;
+      const ac = getAudioContext();
+      try { await ac.audioWorklet.addModule('/pcm-capture-worklet.js'); }
+      catch (e) { emit('strudelError', { message: 'pcm worklet: ' + e.message }); return; }
+      const node = new AudioWorkletNode(ac, 'pcm-capture-processor', {
+        numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],
+      });
+      getSuperdoughAudioController().output.destinationGain.connect(node);
+      node.port.onmessage = (e) => {
+        const { l, r, sampleRate } = e.data;
+        callNative('jucePcmChunk',
+          [Array.from(new Float32Array(l)), Array.from(new Float32Array(r)), sampleRate]);
+      };
+      pcmInstalled = true;
+    }
+
+    // ---- C++-facing API ----
+    window.strudelSetCode = (code) => { editor && editor.setCode(code || ''); };
+    window.strudelGetCode = () => (editor ? editor.code : '');
+    window.strudelEvaluate = async () => {
+      try {
+        await getAudioContext().resume();
+        await installPcmCapture();
+        await editor.evaluate();
+        setStatus('▶ Playing', '#a6e3a1');
+        emit('strudelCode', { code: editor.code });
+      } catch (e) {
+        setStatus('Error: ' + String((e && e.message) || e), '#f38ba8');
+        emit('strudelError', { message: String((e && e.message) || e) });
+      }
+    };
+    window.strudelHush = () => { try { editor && editor.stop(); } catch (e) {} setStatus('■ Stopped'); };
+
+    $play.addEventListener('click', () => window.strudelEvaluate());
+    $stop.addEventListener('click', () => window.strudelHush());
+
+    // ---- Boot ----
+    (async () => {
+      try {
+        setProgress(15, 'Initializing editor…');
+        initAudioOnFirstClick();
+        editor = new StrudelMirror({
+          defaultOutput: webaudioOutput,
+          getTime: () => getAudioContext().currentTime,
+          transpiler,
+          root: $editor,
+          initialCode: '// Tidal (Strudel) — write a pattern, then press Play (Ctrl+Enter)',
+          pattern: silence,
+          drawTime: [-2, 2],
+          drawContext: getDrawContext(),
+          prebake,
+          solo: true,
+          sync: false,
+          onUpdateState: (state) => {
+            if (state && state.started) setStatus('▶ Playing', '#a6e3a1');
+            if (state && state.error) emit('strudelError', { message: String(state.error.message || state.error) });
+          },
+        });
+        try { editor.updateSettings(codemirrorSettings.get()); } catch (e) {}
+        // StrudelMirror runs prebake internally; give it a moment, then reveal.
+        const ready = () => { setStatus('Ready — write a pattern and press Play (Ctrl+Enter)'); emit('strudelReady', {}); hideLoader(); };
+        if (editor.prebaked && typeof editor.prebaked.then === 'function') editor.prebaked.then(ready, ready);
+        else setTimeout(ready, 1200);
+      } catch (e) {
+        setStatus('Init failed: ' + String((e && e.message) || e), '#f38ba8');
+        emit('strudelError', { message: 'init: ' + String((e && e.message) || e) });
+        hideLoader();
+      }
+    })();
+  </script>
+</body>
+</html>
