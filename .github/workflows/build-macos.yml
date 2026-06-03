@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-macos:
+  # ----------- arm64 (Apple Silicon) modern build, macOS 11+ -----------
+  build-macos-arm64:
     runs-on: macos-14
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -14,7 +15,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          lfs: true
+
+      - name: Restore Faust build directory
+        run: cd third_party/faust && git checkout -- build/ || true
 
       - name: Install dependencies
         run: brew install ninja
@@ -24,13 +27,6 @@ jobs:
           mkdir -p assets/soundfonts
           curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
             -o assets/soundfonts/GeneralUser_GS.sf2
-
-      - name: Restore Faust build directory
-        run: |
-          # Faust's build/CMakeLists.txt is excluded by faust's .gitignore
-          # but it's a source file needed for CMake. Restore it via git.
-          cd third_party/faust
-          git checkout -- build/
 
       - name: Configure CMake
         run: |
@@ -44,19 +40,61 @@ jobs:
 
       - name: Create DMG
         run: |
-          APP_PATH="build/magda/daw/magda_daw_app_artefacts/Release/Blitz.app"
-          if [ ! -d "$APP_PATH" ]; then
-            find build -name "*.app" -type d
-            exit 1
-          fi
-          mkdir -p dmg_staging
-          cp -R "$APP_PATH" dmg_staging/
+          APP="build/magda/daw/magda_daw_app_artefacts/Release/Blitz.app"
+          [ -d "$APP" ] || { find build -name "*.app" -type d; exit 1; }
+          mkdir dmg_staging
+          cp -R "$APP" dmg_staging/
           ln -s /Applications dmg_staging/Applications
-          hdiutil create -volname "Blitz" -srcfolder dmg_staging \
-            -ov -format UDZO "Blitz.dmg"
+          hdiutil create -volname "Blitz" -srcfolder dmg_staging -ov -format UDZO Blitz-arm64.dmg
 
-      - name: Upload DMG
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: Blitz-macOS
-          path: Blitz.dmg
+          name: Blitz-macOS-arm64
+          path: Blitz-arm64.dmg
+
+  # ----------- x86_64 legacy build, macOS 10.14+ -----------
+  build-macos-x86-legacy:
+    runs-on: macos-13    # last runner with x86_64 support
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "10.14"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore Faust build directory
+        run: cd third_party/faust && git checkout -- build/ || true
+
+      - name: Install dependencies
+        run: brew install ninja
+
+      - name: Download GeneralUser GS SoundFont
+        run: |
+          mkdir -p assets/soundfonts
+          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
+            -o assets/soundfonts/GeneralUser_GS.sf2
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14 \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64" \
+            -DMAGDA_ENABLE_LOCAL_LLM=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --target magda_daw_app
+
+      - name: Create DMG
+        run: |
+          APP="build/magda/daw/magda_daw_app_artefacts/Release/Blitz.app"
+          [ -d "$APP" ] || { find build -name "*.app" -type d; exit 1; }
+          mkdir dmg_staging
+          cp -R "$APP" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "Blitz" -srcfolder dmg_staging -ov -format UDZO Blitz-x86.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Blitz-macOS-x86_64
+          path: Blitz-x86.dmg

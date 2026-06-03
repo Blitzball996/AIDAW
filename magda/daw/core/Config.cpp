@@ -96,6 +96,9 @@ void Config::save() {
     root->setProperty("autoSaveEnabled", autoSaveEnabled);
     root->setProperty("autoSaveIntervalSeconds", autoSaveIntervalSeconds);
 
+    // Tidal (Strudel) WebView proxy — e.g. a local Clash/VPN port like 7897.
+    root->setProperty("tidalProxyPort", toJuceString(tidalProxyPort));
+
     // Export audio
     root->setProperty("exportFormat", toJuceString(exportFormat));
     root->setProperty("exportSampleRate", exportSampleRate);
@@ -369,6 +372,7 @@ void Config::load() {
 
     autoSaveEnabled = getBool("autoSaveEnabled", autoSaveEnabled);
     autoSaveIntervalSeconds = getInt("autoSaveIntervalSeconds", autoSaveIntervalSeconds);
+    tidalProxyPort = getString("tidalProxyPort", tidalProxyPort);
 
     exportFormat = getString("exportFormat", exportFormat);
     exportSampleRate = getDouble("exportSampleRate", exportSampleRate);

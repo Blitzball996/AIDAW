@@ -682,6 +682,18 @@ class Config {
         autoSaveIntervalSeconds = std::max(10, seconds);
     }
 
+    std::string getTidalProxyPort() const {
+        return tidalProxyPort;
+    }
+    void setTidalProxyPort(const std::string& port) {
+        // Keep only digits; empty = use system proxy.
+        std::string clean;
+        for (char c : port)
+            if (c >= '0' && c <= '9')
+                clean += c;
+        tidalProxyPort = clean;
+    }
+
     // Parameter aliases (user-global layer, serialized to/from config.json)
     juce::var getParamAliases() const {
         return paramAliases_;
@@ -816,6 +828,14 @@ class Config {
     // Auto-save settings
     bool autoSaveEnabled = true;       // Auto-save enabled by default
     int autoSaveIntervalSeconds = 60;  // Save every 60 seconds
+
+    // Tidal (Strudel) WebView proxy port. The WebView fetches sample packs from
+    // GitHub; behind a VPN/proxy (e.g. Clash on 7897) this can be slow or blocked.
+    // When set, the WebView2 backend is launched with
+    //   --proxy-server=127.0.0.1:<port>
+    // Empty = use the system proxy. Changing it takes effect next time the Tidal
+    // editor window is opened.
+    std::string tidalProxyPort = "";
 
     // Preview output channel (stereo pair offset: 0 = outputs 1-2, 2 = outputs 3-4, etc.)
     int previewOutputChannel = 0;

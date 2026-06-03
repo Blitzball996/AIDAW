@@ -160,36 +160,175 @@
       };
     }
 
-    // ---- Game 3: Bounce — keep the ball up with a mouse/←→ paddle ----
-    function BounceGame() {
-      let px=W/2, bx=W/2, by=40, vx=2.4, vy=2.2, score=0, dead=false;
+    // ---- Game 3: Breakout — classic paddle/bricks with power-up drops ----
+    function BreakoutGame() {
+      const PW0 = 60, R = 6;
+      let px = W/2, pw = PW0, score = 0, lives = 3, msg = '';
+      let balls = [], bricks = [], drops = [], started = false;
+      function reset(full) {
+        balls = [{ x: W/2, y: H-40, vx: 2.2, vy: -2.6 }];
+        drops = []; pw = PW0; started = false;
+        if (full) {
+          score = 0; lives = 3; msg = '';
+          bricks = [];
+          const cols = 9, rows = 5, bw = (W-20)/cols, bh = 16;
+          const cs = [COL.c, COL.d, COL.b, COL.a, COL.e];
+          for (let r = 0; r < rows; r++)
+            for (let c = 0; c < cols; c++)
+              bricks.push({ x: 10+c*bw, y: 30+r*bh, w: bw-3, h: bh-3, col: cs[r], pu: Math.random()<0.12 });
+        }
+      }
+      reset(true);
       return {
-        name: 'Keep It Up',
+        name: 'Breakout (power-ups)',
         step() {
           ctx.fillStyle = COL.bg; ctx.fillRect(0,0,W,H);
-          if (dead) {
-            txt('Dropped! click to retry', W/2-92, H/2, COL.c);
-            txt('Bounces '+score, W/2-40, H/2+22, COL.d);
-            if (clicked) { dead=false; bx=W/2; by=40; vx=2.4; vy=2.2; score=0; }
-            return;
+          if (keys['ArrowLeft']) px -= 7;
+          if (keys['ArrowRight']) px += 7;
+          px += (mouseX - px) * 0.16;
+          px = Math.max(pw/2, Math.min(W-pw/2, px));
+          if (!started && clicked) started = true;
+          if (!started) { balls[0].x = px; balls[0].y = H-40; }
+
+          // bricks
+          for (const b of bricks) { if (!b.dead) { ctx.fillStyle = b.col; ctx.fillRect(b.x, b.y, b.w, b.h);
+            if (b.pu) { ctx.fillStyle = '#11111b'; txt('+', b.x+b.w/2-3, b.y+b.h-3, '#11111b', 12); } } }
+
+          // balls
+          for (const ball of balls) {
+            if (started) { ball.x += ball.vx; ball.y += ball.vy; }
+            if (ball.x < R || ball.x > W-R) ball.vx *= -1;
+            if (ball.y < R) ball.vy *= -1;
+            if (ball.y > H-22 && ball.y < H-10 && Math.abs(ball.x-px) < pw/2 + R) {
+              ball.vy = -Math.abs(ball.vy);
+              ball.vx += (ball.x - px) / (pw/2) * 1.2;   // angle by hit position
+            }
+            for (const b of bricks) {
+              if (b.dead) continue;
+              if (ball.x > b.x-R && ball.x < b.x+b.w+R && ball.y > b.y-R && ball.y < b.y+b.h+R) {
+                b.dead = true; ball.vy *= -1; score += 10;
+                if (b.pu) drops.push({ x: b.x+b.w/2, y: b.y, kind: Math.floor(Math.random()*3) });
+                break;
+              }
+            }
+            ctx.fillStyle = COL.fg; ctx.beginPath(); ctx.arc(ball.x, ball.y, R, 0, 7); ctx.fill();
           }
-          if (keys['ArrowLeft']) px -= 6;
-          if (keys['ArrowRight']) px += 6;
-          px += (mouseX - px) * 0.18;
-          px = Math.max(34, Math.min(W-34, px));
-          bx += vx; by += vy; vy += 0.08;
-          if (bx < 8 || bx > W-8) vx *= -1;
-          if (by < 8) vy *= -1;
-          if (by > H-24 && Math.abs(bx-px) < 36) { vy = -Math.abs(vy) - 0.4; score++; }
-          if (by > H) dead = true;
-          ctx.fillStyle = COL.d; ctx.beginPath(); ctx.arc(bx, by, 8, 0, 7); ctx.fill();
-          ctx.fillStyle = COL.a; ctx.fillRect(px-34, H-12, 68, 7);
-          txt('Bounces '+score, 8, 18, COL.b);
+          balls = balls.filter(b => b.y < H + 20);
+          if (balls.length === 0) {
+            lives--; if (lives <= 0) { msg = 'Game over — click to restart'; if (clicked) reset(true); }
+            else reset(false);
+          }
+
+          // power-up drops: 0=multiball 1=wider 2=points
+          for (const d of drops) {
+            d.y += 2.2;
+            ctx.fillStyle = [COL.b, COL.a, COL.d][d.kind];
+            ctx.fillRect(d.x-7, d.y-7, 14, 14);
+            if (d.y > H-22 && Math.abs(d.x-px) < pw/2+8) {
+              d.dead = true;
+              if (d.kind === 0) { const b=balls[0]; if (b) balls.push({x:b.x,y:b.y,vx:-b.vx,vy:b.vy}); }
+              else if (d.kind === 1) pw = Math.min(120, pw+18);
+              else score += 50;
+            }
+          }
+          drops = drops.filter(d => !d.dead && d.y < H+10);
+
+          if (bricks.every(b => b.dead)) { msg = 'Cleared! click for next'; if (clicked) reset(true); }
+
+          ctx.fillStyle = COL.a; ctx.fillRect(px-pw/2, H-12, pw, 7);
+          txt('Score '+score, 8, 18, COL.b);
+          txt('Lives '+lives, W-80, 18, COL.c);
+          if (!started && !msg) txt('click to launch', W/2-52, H/2, COL.d);
+          if (msg) txt(msg, W/2-90, H/2+20, COL.d);
         }
       };
     }
 
-    const factories = [CatchGame, DodgeGame, BounceGame];
+    // ---- Game 4: Escape — balls escape a rotating brick ring through its gap ----
+    function EscapeGame() {
+      const cx = W/2, cy = H/2, R = 92, thick = 16;
+      const SEG = 28, gapStart = 4, gapLen = 4; // bricks around the ring; a moving gap
+      let ang = 0, layer = 1, score = 0, balls = [], bricks = [], aiming = true, aimDir = -Math.PI/2;
+      function buildRing() {
+        bricks = [];
+        for (let i = 0; i < SEG; i++) {
+          const inGap = ((i - gapStart) % SEG + SEG) % SEG < gapLen;
+          if (inGap) continue;
+          // certain colours (green) clone the ball on hit
+          const clone = (i % 5 === 0);
+          bricks.push({ i, alive: true, clone });
+        }
+      }
+      function reset(full) {
+        balls = [{ x: cx, y: cy, vx: Math.cos(aimDir)*2.6, vy: Math.sin(aimDir)*2.6 }];
+        aiming = true;
+        if (full) { layer = 1; score = 0; }
+        buildRing();
+      }
+      reset(true);
+      return {
+        name: 'Escape the Ring',
+        step() {
+          ctx.fillStyle = COL.bg; ctx.fillRect(0,0,W,H);
+          ang += 0.012; // ring rotation
+
+          // aiming phase: player sets initial direction with ←→, click to launch
+          if (aiming) {
+            if (keys['ArrowLeft']) aimDir -= 0.05;
+            if (keys['ArrowRight']) aimDir += 0.05;
+            const ax = cx + Math.cos(aimDir)*40, ay = cy + Math.sin(aimDir)*40;
+            ctx.strokeStyle = COL.d; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(ax,ay); ctx.stroke();
+            balls[0].vx = Math.cos(aimDir)*2.8; balls[0].vy = Math.sin(aimDir)*2.8;
+            if (clicked) aiming = false;
+          }
+
+          // draw rotating ring of bricks
+          const step = (Math.PI*2)/SEG;
+          for (const b of bricks) {
+            if (!b.alive) continue;
+            const a0 = ang + b.i*step, a1 = a0 + step*0.9;
+            ctx.strokeStyle = b.clone ? COL.b : COL.e;
+            ctx.lineWidth = thick;
+            ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
+          }
+          ctx.lineWidth = 1;
+
+          // balls
+          for (const ball of balls) {
+            if (!aiming) { ball.x += ball.vx; ball.y += ball.vy; }
+            const dx = ball.x-cx, dy = ball.y-cy, dist = Math.hypot(dx, dy);
+            // collision with ring band
+            if (dist > R-thick/2-5 && dist < R+thick/2+5) {
+              const ba = ((Math.atan2(dy,dx) - ang) % (Math.PI*2) + Math.PI*2) % (Math.PI*2);
+              const seg = Math.floor(ba/step);
+              const hit = bricks.find(b => b.alive && b.i === seg);
+              if (hit) {
+                // bounce inward
+                const nx = dx/dist, ny = dy/dist, dot = ball.vx*nx + ball.vy*ny;
+                ball.vx -= 2*dot*nx; ball.vy -= 2*dot*ny;
+                hit.alive = false; score += 5;
+                if (hit.clone && balls.length < 40)
+                  balls.push({ x: ball.x, y: ball.y, vx: -ball.vy, vy: ball.vx });
+              } else if (dist > R) {
+                // escaped through the gap → clear this layer, go deeper
+                ball.escaped = true; score += 25;
+              }
+            }
+            if (!ball.escaped) { ctx.fillStyle = COL.fg; ctx.beginPath(); ctx.arc(ball.x, ball.y, 5, 0, 7); ctx.fill(); }
+          }
+          const anyEscaped = balls.some(b => b.escaped);
+          balls = balls.filter(b => !b.escaped && b.x>-20 && b.x<W+20 && b.y>-20 && b.y<H+20);
+          if (anyEscaped) { layer++; reset(false); }
+          if (balls.length === 0) reset(false);
+
+          txt('Score '+score, 8, 18, COL.b);
+          txt('Layer '+layer, W-80, 18, COL.a);
+          if (aiming) txt('aim ← → then click', W/2-72, H-14, COL.d);
+        }
+      };
+    }
+
+    const factories = [CatchGame, DodgeGame, BreakoutGame, EscapeGame];
     let idx = Math.floor(Math.random()*factories.length);
     let game = factories[idx]();
     const gameName = document.getElementById('gameName');
@@ -210,7 +349,7 @@
       StrudelMirror, codemirrorSettings,
       getDrawContext, silence, evalScope, transpiler,
       getAudioContext, webaudioOutput, initAudioOnFirstClick,
-      registerSynthSounds, samples, aliasBank,
+      registerSynthSounds, samples,
       getSuperdoughAudioController,
       slider, sliderWithID,
       hydra, soundfonts, midi, serial, gamepad, motion,
@@ -267,35 +406,20 @@
       try { soundfonts && soundfonts.registerSoundfonts && await soundfonts.registerSoundfonts(); } catch (e) {}
     }
 
-    // Prebake: synth sounds, slider runtime, feature packages, full sample set.
+    // Prebake: synth sounds, feature packages, ALL samples from local manifest.
+    // strudel-local.json covers tidal-drum-machines + piano + Dirt-Samples +
+    // vcsl + mridangam + uzu-drumkit — served offline by the C++ resource provider.
     async function prebake() {
-      setProgress(35, 'Registering synths & features…');
+      setProgress(40, 'Registering synths & features…');
       try { await evalScope({ slider, sliderWithID }); } catch (e) {}
       await registerSynthSounds().catch(() => {});
       await loadFeatureScopes();
-
-      setProgress(55, 'Loading samples…');
-      // Local offline drum machines first (works with no internet).
-      const jobs = [
-        samples('/samples/strudel-offline.json', window.location.origin + '/samples/').catch(() => {}),
-      ];
-      // Full canonical strudel.cc set — streams on demand from GitHub.
-      const ds = 'https://raw.githubusercontent.com/felixroos/dough-samples/main';
-      const tc = 'https://raw.githubusercontent.com/tidalcycles/uzu-drumkit/main';
-      const ts = 'https://raw.githubusercontent.com/todepond/samples/main';
-      const remote = [
-        `${ds}/tidal-drum-machines.json`, `${ds}/piano.json`, `${ds}/Dirt-Samples.json`,
-        `${ds}/vcsl.json`, `${ds}/mridangam.json`, `${tc}/strudel.json`,
-      ];
-      let done = 0;
-      for (const url of remote) {
-        jobs.push(Promise.resolve(samples(url)).then(() => {
-          done++; setProgress(55 + Math.round(done / remote.length * 35), 'Loading samples…');
-        }).catch(() => { done++; }));
-      }
-      try { aliasBank(`${ts}/tidal-drum-machines-alias.json`); } catch (e) {}
-      await Promise.all(jobs);
-      setProgress(92, 'Finishing…');
+      setProgress(70, 'Loading samples…');
+      await samples('/samples/strudel-local.json', window.location.origin).catch(() => {
+        // Fall back to legacy offline manifest if full set not yet installed.
+        return samples('/samples/strudel-offline.json', window.location.origin + '/samples/').catch(() => {});
+      });
+      setProgress(90, 'Finishing…');
     }
 
     // ---- PCM capture: tap superdough master gain, forward Float32 to C++ ----

@@ -12,6 +12,7 @@
 #include "../windows/MainWindow.hpp"
 #include "core/AppPaths.hpp"
 #include "core/Config.hpp"
+#include "core/license/LicenseManager.hpp"
 #include "core/StringTable.hpp"
 #include "core/UIScale.hpp"
 
@@ -116,6 +117,33 @@ class GeneralPage : public juce::Component {
         setupTextSlider(*this, autoSaveIntervalSlider, autoSaveIntervalLabel,
                         tr("preferences.slider.interval"), 10.0, 300.0, 10.0, 0, " sec");
 
+        setupSectionHeader(*this, tidalHeader, tr("preferences.section.tidal"));
+        setupComboLabel(tidalProxyLabel, tr("preferences.tidal.proxy_port"));
+        tidalProxyEditor.setColour(juce::TextEditor::backgroundColourId,
+                                   DarkTheme::getColour(DarkTheme::SURFACE));
+        tidalProxyEditor.setColour(juce::TextEditor::textColourId,
+                                   DarkTheme::getColour(DarkTheme::TEXT_PRIMARY));
+        tidalProxyEditor.setColour(juce::TextEditor::outlineColourId,
+                                   DarkTheme::getColour(DarkTheme::BORDER));
+        tidalProxyEditor.setInputRestrictions(5, "0123456789");
+        tidalProxyEditor.setTextToShowWhenEmpty(tr("preferences.tidal.proxy_hint"),
+                                                DarkTheme::getColour(DarkTheme::TEXT_DIM));
+        addAndMakeVisible(tidalProxyEditor);
+
+        setupSectionHeader(*this, licenseHeader, tr("preferences.section.license"));
+        licenseStatusLabel.setFont(FontManager::getInstance().getUIFont(12.0f));
+        licenseStatusLabel.setColour(juce::Label::textColourId,
+                                     DarkTheme::getColour(DarkTheme::TEXT_DIM));
+        licenseStatusLabel.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(licenseStatusLabel);
+        licenseActivateButton.setButtonText(tr("preferences.license.activate"));
+        licenseActivateButton.onClick = [this] {
+            magda::LicenseManager::getInstance().promptActivation(
+                [this](bool) { refreshLicenseStatus(); });
+        };
+        addAndMakeVisible(licenseActivateButton);
+        refreshLicenseStatus();
+
         setupSectionHeader(*this, layoutHeader, tr("preferences.section.layout"));
         setupToggle(*this, headersOnRightToggle, tr("preferences.toggle.headers_on_right"));
 
@@ -198,6 +226,8 @@ class GeneralPage : public juce::Component {
         autoSaveToggle.setToggleState(config.getAutoSaveEnabled(), juce::dontSendNotification);
         autoSaveIntervalSlider.setValue(config.getAutoSaveIntervalSeconds(),
                                         juce::dontSendNotification);
+        tidalProxyEditor.setText(juce::String(config.getTidalProxyPort()),
+                                 juce::dontSendNotification);
         headersOnRightToggle.setToggleState(config.getScrollbarOnLeft(),
                                             juce::dontSendNotification);
         confirmTrackDeleteToggle.setToggleState(config.getConfirmTrackDelete(),
@@ -245,6 +275,7 @@ class GeneralPage : public juce::Component {
         config.setStopUpdatesPlayhead(stopUpdatesPlayheadToggle.getToggleState());
         config.setAutoSaveEnabled(autoSaveToggle.getToggleState());
         config.setAutoSaveIntervalSeconds(static_cast<int>(autoSaveIntervalSlider.getValue()));
+        config.setTidalProxyPort(tidalProxyEditor.getText().toStdString());
         config.setScrollbarOnLeft(headersOnRightToggle.getToggleState());
         config.setConfirmTrackDelete(confirmTrackDeleteToggle.getToggleState());
         config.setAutoMonitorSelectedTrack(autoMonitorToggle.getToggleState());
@@ -345,6 +376,27 @@ class GeneralPage : public juce::Component {
         layoutTextSliderRow(bounds, autoSaveIntervalLabel, autoSaveIntervalSlider, rowH, sliderH);
         bounds.removeFromTop(secGap);
 
+        // Tidal (Strudel) proxy
+        tidalHeader.setBounds(bounds.removeFromTop(headerH));
+        bounds.removeFromTop(4);
+        {
+            auto row = bounds.removeFromTop(rowH);
+            tidalProxyLabel.setBounds(row.removeFromLeft(row.getWidth() / 2));
+            tidalProxyEditor.setBounds(row.reduced(0, 4));
+        }
+        bounds.removeFromTop(secGap);
+
+        // License
+        licenseHeader.setBounds(bounds.removeFromTop(headerH));
+        bounds.removeFromTop(4);
+        {
+            auto row = bounds.removeFromTop(rowH);
+            licenseActivateButton.setBounds(row.removeFromRight(140).reduced(0, 4));
+            row.removeFromRight(8);
+            licenseStatusLabel.setBounds(row);
+        }
+        bounds.removeFromTop(secGap);
+
         // Layout
         layoutHeader.setBounds(bounds.removeFromTop(headerH));
         bounds.removeFromTop(4);
@@ -417,6 +469,27 @@ class GeneralPage : public juce::Component {
         autoSaveToggle.setBounds(left.removeFromTop(rowH).reduced(0, 4));
         left.removeFromTop(4);
         layoutTextSliderRow(left, autoSaveIntervalLabel, autoSaveIntervalSlider, rowH, sliderH);
+        left.removeFromTop(secGap);
+
+        // Tidal (Strudel) proxy
+        tidalHeader.setBounds(left.removeFromTop(headerH));
+        left.removeFromTop(4);
+        {
+            auto row = left.removeFromTop(rowH);
+            tidalProxyLabel.setBounds(row.removeFromLeft(row.getWidth() / 2));
+            tidalProxyEditor.setBounds(row.reduced(0, 4));
+        }
+        left.removeFromTop(secGap);
+
+        // License
+        licenseHeader.setBounds(left.removeFromTop(headerH));
+        left.removeFromTop(4);
+        {
+            auto row = left.removeFromTop(rowH);
+            licenseActivateButton.setBounds(row.removeFromRight(130).reduced(0, 4));
+            row.removeFromRight(8);
+            licenseStatusLabel.setBounds(row);
+        }
 
         // Layout
         layoutHeader.setBounds(right.removeFromTop(headerH));
@@ -465,6 +538,32 @@ class GeneralPage : public juce::Component {
         combo.setColour(juce::ComboBox::textColourId,
                         DarkTheme::getColour(DarkTheme::TEXT_PRIMARY));
         combo.setColour(juce::ComboBox::outlineColourId, DarkTheme::getColour(DarkTheme::BORDER));
+    }
+
+    void refreshLicenseStatus() {
+        const auto s = magda::LicenseManager::getInstance().status();
+        juce::String text;
+        juce::Colour col = DarkTheme::getColour(DarkTheme::TEXT_DIM);
+        switch (s.state) {
+            case magda::lic::State::Activated:
+                text = tr("preferences.license.activated");
+                if (!s.edition.empty())
+                    text += " (" + juce::String(s.edition) + ")";
+                col = DarkTheme::getColour(DarkTheme::STATUS_SUCCESS);
+                licenseActivateButton.setButtonText(tr("preferences.license.reactivate"));
+                break;
+            case magda::lic::State::Trial:
+                text = tr("preferences.license.trial");
+                licenseActivateButton.setButtonText(tr("preferences.license.activate"));
+                break;
+            default:
+                text = tr("preferences.license.locked");
+                col = DarkTheme::getColour(DarkTheme::STATUS_ERROR);
+                licenseActivateButton.setButtonText(tr("preferences.license.activate"));
+                break;
+        }
+        licenseStatusLabel.setText(text, juce::dontSendNotification);
+        licenseStatusLabel.setColour(juce::Label::textColourId, col);
     }
 
     static void layoutTextSliderRow(juce::Rectangle<int>& bounds, juce::Label& label,
@@ -532,6 +631,12 @@ class GeneralPage : public juce::Component {
     juce::ToggleButton autoSaveToggle;
     magda::daw::ui::TextSlider autoSaveIntervalSlider;
     juce::Label autoSaveIntervalLabel;
+    juce::Label tidalHeader;
+    juce::Label tidalProxyLabel;
+    juce::TextEditor tidalProxyEditor;
+    juce::Label licenseHeader;
+    juce::Label licenseStatusLabel;
+    juce::TextButton licenseActivateButton;
     juce::Label layoutHeader, behaviorHeader, languageHeader, scaleHeader;
     juce::ToggleButton headersOnRightToggle;
     juce::ToggleButton confirmTrackDeleteToggle, autoMonitorToggle, openMacrosOnSelectToggle;

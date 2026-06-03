@@ -5,6 +5,12 @@
 #include <cmath>
 #include <cstring>
 
+#include "Config.hpp"
+
+#if JUCE_WINDOWS
+ #include <windows.h>
+#endif
+
 namespace magda::daw::audio {
 
 const char* StrudelPlugin::xmlTypeName = "strudel";
@@ -148,6 +154,12 @@ class StrudelEditorComponent : public te::Plugin::EditorComponent {
                               .getParentDirectory()
                               .getChildFile("strudel");
 
+        // Apply the user's Tidal proxy port (e.g. a local Clash/VPN on 7897) so the
+        // WebView fetches sample packs through it. WebView2 reads this standard env
+        // var when its environment is created, so no JUCE patch is needed. Empty =
+        // system proxy. Sanitised to digits to avoid command-line injection.
+        applyProxyFromConfig();
+
         auto options =
             WB::Options{}
                 .withBackend(WB::Options::Backend::webview2)
@@ -193,6 +205,21 @@ class StrudelEditorComponent : public te::Plugin::EditorComponent {
     }
 
   private:
+    // Launch the WebView2 backend through the user's configured proxy (e.g. a
+    // local Clash/VPN). WebView2 honours the WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+    // environment variable when its environment is created, so this needs no JUCE
+    // patch. Only digits are accepted for the port to avoid command-line injection.
+    static void applyProxyFromConfig() {
+        const juce::String port = juce::String(Config::getInstance().getTidalProxyPort()).trim();
+        if (port.isEmpty() || !port.containsOnly("0123456789"))
+            return;
+        const juce::String args = "--proxy-server=127.0.0.1:" + port;
+       #if JUCE_WINDOWS
+        ::SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                                  args.toWideCharPointer());
+       #endif
+    }
+
     // Serve index.html / bundles / samples from the on-disk strudel resource dir.
     static std::optional<juce::WebBrowserComponent::Resource>
     provideResource(const juce::File& root, const juce::String& path) {
