@@ -14,3 +14,6 @@ CMakeFiles/
 cmake-build-*/
 build3/
 assets/soundfonts/*.sf2
+# Strudel offline sample WAVs/MP3s — large binary assets, downloaded at configure
+# time via cmake or manually. Manifests (*.json) are tracked; audio files are not.
+magda/daw/audio/plugins/strudel/samples/**/

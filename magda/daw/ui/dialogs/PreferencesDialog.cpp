@@ -544,23 +544,19 @@ class GeneralPage : public juce::Component {
         const auto s = magda::LicenseManager::getInstance().status();
         juce::String text;
         juce::Colour col = DarkTheme::getColour(DarkTheme::TEXT_DIM);
-        switch (s.state) {
-            case magda::lic::State::Activated:
-                text = tr("preferences.license.activated");
-                if (!s.edition.empty())
-                    text += " (" + juce::String(s.edition) + ")";
-                col = DarkTheme::getColour(DarkTheme::STATUS_SUCCESS);
-                licenseActivateButton.setButtonText(tr("preferences.license.reactivate"));
-                break;
-            case magda::lic::State::Trial:
-                text = tr("preferences.license.trial");
-                licenseActivateButton.setButtonText(tr("preferences.license.activate"));
-                break;
-            default:
-                text = tr("preferences.license.locked");
-                col = DarkTheme::getColour(DarkTheme::STATUS_ERROR);
-                licenseActivateButton.setButtonText(tr("preferences.license.activate"));
-                break;
+        if (s.state == lic::State::Activated) {
+            text = tr("preferences.license.activated");
+            if (!s.edition.empty())
+                text += " (" + juce::String(s.edition) + ")";
+            col = DarkTheme::getColour(DarkTheme::STATUS_SUCCESS);
+            licenseActivateButton.setButtonText(tr("preferences.license.reactivate"));
+        } else if (s.state == lic::State::Trial) {
+            text = tr("preferences.license.trial");
+            licenseActivateButton.setButtonText(tr("preferences.license.activate"));
+        } else {
+            text = tr("preferences.license.locked");
+            col = DarkTheme::getColour(DarkTheme::STATUS_ERROR);
+            licenseActivateButton.setButtonText(tr("preferences.license.activate"));
         }
         licenseStatusLabel.setText(text, juce::dontSendNotification);
         licenseStatusLabel.setColour(juce::Label::textColourId, col);
