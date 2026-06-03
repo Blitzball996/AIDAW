@@ -68,17 +68,37 @@
     <div id="logo">T I D A L</div>
     <div class="bar-wrap">
       <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
-      <div class="bar-row"><span id="loadPhase">Starting engine…</span><span id="loadPct">0%</span></div>
+      <div class="bar-row"><span id="loadPhase">Loading…</span><span id="loadPct">0%</span></div>
     </div>
     <div id="gameBar">
       <span>🎮 <span id="gameName">Loading…</span></span>
       <button class="mini-btn" id="gameSwitch">Next game ⟳</button>
+      <button class="mini-btn" id="skipBtn" style="background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:5px;cursor:pointer">跳过 ✕</button>
     </div>
     <div id="gameWrap"><canvas id="gameCanvas" width="360" height="240"></canvas></div>
     <div id="gameHint">Use ← → ↑ ↓ / mouse / click to play while Tidal loads</div>
   </div>
 
   <script>
+  // Skip button + watchdog — plain JS so it works even if the module import fails.
+  (function () {
+    function doSkip() {
+      var loader = document.getElementById('loader');
+      if (!loader) return;
+      loader.style.transition = 'opacity .3s';
+      loader.style.opacity = '0';
+      loader.style.pointerEvents = 'none';
+      window.__stopMiniGames && window.__stopMiniGames();
+      setTimeout(function () { if (loader.parentNode) loader.parentNode.removeChild(loader); }, 350);
+    }
+    document.getElementById('skipBtn').addEventListener('click', doSkip);
+    // Watchdog: auto-skip after 30 s if progress is still 0 (module import hung).
+    setTimeout(function () {
+      var fill = document.getElementById('barFill');
+      if (fill && parseFloat(fill.style.width || '0') < 1) doSkip();
+    }, 30000);
+  })();
+  </script>
   // ===== Mini-games shown while Tidal loads (original simple arcade games) =====
   (function () {
     const cv = document.getElementById('gameCanvas');
@@ -345,6 +365,15 @@
   </script>
 
   <script type="module">
+  // Catch module-level errors (e.g. bundle import fails) and surface them.
+  window.addEventListener('error', (e) => {
+    document.getElementById('loadPhase').textContent = 'Load error: ' + (e.message || e);
+    document.getElementById('loadPct').textContent = '!';
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    document.getElementById('loadPhase').textContent = 'Error: ' + (e.reason && e.reason.message || e.reason);
+    document.getElementById('loadPct').textContent = '!';
+  });
     import {
       StrudelMirror, codemirrorSettings,
       getDrawContext, silence, evalScope, transpiler,
