@@ -66,7 +66,7 @@
     "help.manual": "在线手册",
     "help.check_updates": "检查更新…",
     "help.activate": "激活 / 输入序列号…",
-    "help.about": "关于 MAGDA"
+    "help.about": "关于 Blitz"
   },
   "transport": {
     "count_in.off": "关",
@@ -182,7 +182,7 @@
     "ai_settings": "AI 设置",
     "plugin_settings": "插件设置",
     "preferences": "首选项",
-    "about": "关于 MAGDA",
+    "about": "关于 Blitz",
     "track_manager": "轨道管理器",
     "chain_tree": "链树",
     "ok": "确定",
@@ -350,7 +350,7 @@
     "section.timeline": "时间轴",
     "section.transport": "走带",
     "section.autosave": "自动保存",
-    "section.tidal": "Tidal (Strudel)",
+    "section.tidal": "Tidal",
     "tidal.proxy_port": "代理端口",
     "tidal.proxy_hint": "例如 7897 (Clash)",
     "section.license": "许可证",

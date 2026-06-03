@@ -376,7 +376,7 @@ class GeneralPage : public juce::Component {
         layoutTextSliderRow(bounds, autoSaveIntervalLabel, autoSaveIntervalSlider, rowH, sliderH);
         bounds.removeFromTop(secGap);
 
-        // Tidal (Strudel) proxy
+        // Tidal proxy
         tidalHeader.setBounds(bounds.removeFromTop(headerH));
         bounds.removeFromTop(4);
         {
@@ -471,7 +471,7 @@ class GeneralPage : public juce::Component {
         layoutTextSliderRow(left, autoSaveIntervalLabel, autoSaveIntervalSlider, rowH, sliderH);
         left.removeFromTop(secGap);
 
-        // Tidal (Strudel) proxy
+        // Tidal proxy
         tidalHeader.setBounds(left.removeFromTop(headerH));
         left.removeFromTop(4);
         {

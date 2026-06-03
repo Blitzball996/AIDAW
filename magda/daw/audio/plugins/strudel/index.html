@@ -90,6 +90,24 @@
       loader.style.pointerEvents = 'none';
       window.__stopMiniGames && window.__stopMiniGames();
       setTimeout(function () { if (loader.parentNode) loader.parentNode.removeChild(loader); }, 350);
+
+      // If the real CodeMirror editor hasn't mounted yet, inject a plain textarea
+      // so the user can type and play patterns immediately.
+      setTimeout(function () {
+        var edDiv = document.getElementById('editor');
+        if (!edDiv || edDiv.querySelector('.cm-editor') || edDiv.querySelector('textarea')) return;
+        var ta = document.createElement('textarea');
+        ta.id = 'fallback-code';
+        ta.spellcheck = false;
+        ta.value = '// Tidal — write a pattern, then press Play (Ctrl+Enter)';
+        ta.style.cssText = 'width:100%;height:100%;background:#181825;color:#cdd6f4;border:none;' +
+          'outline:none;padding:10px;font:14px ui-monospace,monospace;box-sizing:border-box;resize:none;tab-size:2';
+        edDiv.appendChild(ta);
+        var status = document.getElementById('status');
+        if (status) status.textContent = 'Engine loading in background — type and press Play to try';
+        // Wire play/stop to the fallback textarea when the module provides evaluate
+        window.__fallbackGetCode = function() { return ta.value; };
+      }, 400);
     }
     document.getElementById('skipBtn').addEventListener('click', doSkip);
     // Watchdog: auto-skip after 30 s if progress is still 0 (module import hung).
@@ -471,15 +489,28 @@
     }
 
     // ---- C++-facing API ----
-    window.strudelSetCode = (code) => { editor && editor.setCode(code || ''); };
-    window.strudelGetCode = () => (editor ? editor.code : '');
+    window.strudelSetCode = (code) => {
+      if (editor) editor.setCode(code || '');
+      else { const ta = document.getElementById('fallback-code'); if (ta) ta.value = code || ''; }
+    };
+    window.strudelGetCode = () => {
+      if (editor) return editor.code;
+      const ta = document.getElementById('fallback-code'); return ta ? ta.value : '';
+    };
     window.strudelEvaluate = async () => {
+      // Get code from CodeMirror editor or fallback textarea
+      const code = window.strudelGetCode();
       try {
         await getAudioContext().resume();
         await installPcmCapture();
-        await editor.evaluate();
-        setStatus('▶ Playing', '#a6e3a1');
-        emit('strudelCode', { code: editor.code });
+        if (editor) {
+          await editor.evaluate();
+          setStatus('▶ Playing', '#a6e3a1');
+          emit('strudelCode', { code: editor.code });
+        } else {
+          // Module not loaded yet — can't evaluate
+          setStatus('Engine still loading, please wait…', '#f9e2af');
+        }
       } catch (e) {
         setStatus('Error: ' + String((e && e.message) || e), '#f38ba8');
         emit('strudelError', { message: String((e && e.message) || e) });
@@ -500,7 +531,7 @@
           getTime: () => getAudioContext().currentTime,
           transpiler,
           root: $editor,
-          initialCode: '// Tidal (Strudel) — write a pattern, then press Play (Ctrl+Enter)',
+          initialCode: '// Tidal — write a pattern, then press Play (Ctrl+Enter)',
           pattern: silence,
           drawTime: [-2, 2],
           drawContext: getDrawContext(),

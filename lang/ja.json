@@ -66,7 +66,7 @@
     "help.manual": "オンラインマニュアル",
     "help.check_updates": "アップデートを確認…",
     "help.activate": "ライセンス認証 / シリアル入力…",
-    "help.about": "MAGDAについて"
+    "help.about": "Blitzについて"
   },
   "transport": {
     "count_in.off": "",
@@ -182,7 +182,7 @@
     "ai_settings": "AIの設定",
     "plugin_settings": "プラグインの設定",
     "preferences": "環境設定",
-    "about": "MAGDAについて",
+    "about": "Blitzについて",
     "track_manager": "",
     "chain_tree": "",
     "ok": "OK",
@@ -350,7 +350,7 @@
     "section.timeline": "",
     "section.transport": "",
     "section.autosave": "",
-    "section.tidal": "Tidal (Strudel)",
+    "section.tidal": "Tidal",
     "tidal.proxy_port": "プロキシポート",
     "tidal.proxy_hint": "例: 7897 (Clash)",
     "section.license": "ライセンス",

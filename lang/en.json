@@ -66,7 +66,7 @@
     "help.manual": "Online Manual",
     "help.check_updates": "Check for Updates...",
     "help.activate": "Activate / Enter License Key...",
-    "help.about": "About MAGDA"
+    "help.about": "About Blitz"
   },
   "transport": {
     "count_in.off": "Off",
@@ -182,7 +182,7 @@
     "ai_settings": "AI Settings",
     "plugin_settings": "Plugin Settings",
     "preferences": "Preferences",
-    "about": "About MAGDA",
+    "about": "About Blitz",
     "track_manager": "Track Manager",
     "chain_tree": "Chain Tree",
     "ok": "OK",
@@ -350,7 +350,7 @@
     "section.timeline": "Timeline",
     "section.transport": "Transport",
     "section.autosave": "Auto-Save",
-    "section.tidal": "Tidal (Strudel)",
+    "section.tidal": "Tidal",
     "tidal.proxy_port": "Proxy port",
     "tidal.proxy_hint": "e.g. 7897 (Clash)",
     "section.license": "License",
