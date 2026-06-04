@@ -290,10 +290,11 @@ endif()
 # Lua's official source distribution ships no CMakeLists.txt, so
 # FetchContent_MakeAvailable just populates lua_SOURCE_DIR; the actual
 # static library is built by magda/scripting/CMakeLists.txt.
+# URL: use GitHub mirror (www.lua.org is unreliable from GitHub Actions runners).
 FetchContent_Declare(
     lua
-    URL https://www.lua.org/ftp/lua-5.4.7.tar.gz
-    URL_HASH SHA256=9fbf5e28ef86c69858f6d3d34eccc32e911c1a28b4120ff3e84aaa70cfbf1e30
+    URL https://github.com/lua/lua/archive/refs/tags/v5.4.7.tar.gz
+    URL_HASH SHA256=5c39111b3fc4c1c9e56671008955a1730f54a15b95e1f1bd0752b868b929d8e3
 )
 FetchContent_MakeAvailable(lua)
 
