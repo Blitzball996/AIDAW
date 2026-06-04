@@ -14,6 +14,12 @@
 
 set(LUA_SRC_DIR "${lua_SOURCE_DIR}/src")
 
+# GitHub tarball (github.com/lua/lua/archive/refs/tags/v*.tar.gz) has flat structure (*.c
+# at top level), lua.org official tarball has src/ subdirectory. Auto-detect which one.
+if(NOT EXISTS "${LUA_SRC_DIR}/lapi.c")
+    set(LUA_SRC_DIR "${lua_SOURCE_DIR}")
+endif()
+
 set(LUA_CORE_SOURCES
     ${LUA_SRC_DIR}/lapi.c
     ${LUA_SRC_DIR}/lauxlib.c
