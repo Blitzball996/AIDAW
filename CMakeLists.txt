@@ -170,7 +170,6 @@ if(MSVC)
     foreach(_target ${_sfizz_targets})
         set_property(TARGET ${_target} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     endforeach()
-    endforeach()
 endif()
 
 # Faust — runtime DSP compilation. Free tier uses the interpreter backend (no
