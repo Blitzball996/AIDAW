@@ -149,13 +149,19 @@ set(SFIZZ_DEMOS OFF CACHE BOOL "" FORCE)
 set(SFIZZ_DEVTOOLS OFF CACHE BOOL "" FORCE)
 set(SFIZZ_SHARED OFF CACHE BOOL "" FORCE)
 set(ENABLE_LTO OFF CACHE BOOL "" FORCE)
-# Force C++17 for sfizz (Voice.cpp uses hex float literals, needs C++17+)
-# Must set via compile flags to override target_compile_features(cxx_std_14)
-set(_SAVED_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++17")
-else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+# Apply patch to fix Voice.cpp C++17 hex float literals (convert to C++14 decimal)
+execute_process(
+    COMMAND git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/sfizz-voice-cpp14.patch
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sfizz
+    RESULT_VARIABLE _patch_check
+    OUTPUT_QUIET ERROR_QUIET
+)
+if(_patch_check EQUAL 0)
+    execute_process(
+        COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/sfizz-voice-cpp14.patch
+     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sfizz
+        OUTPUT_QUIET ERROR_QUIET
+    )
 endif()
 # Force dynamic CRT globally for sfizz and all its dependencies (abseil, etc.)
 set(_SAVED_MSVC_RUNTIME ${CMAKE_MSVC_RUNTIME_LIBRARY})
@@ -163,7 +169,6 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 set(ABSL_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/sfizz EXCLUDE_FROM_ALL)
 set(CMAKE_MSVC_RUNTIME_LIBRARY ${_SAVED_MSVC_RUNTIME})
-set(CMAKE_CXX_FLAGS ${_SAVED_CXX_FLAGS})
 # Force /MD on all sfizz-related targets
 if(MSVC)
     get_property(_sfizz_targets DIRECTORY third_party/sfizz PROPERTY BUILDSYSTEM_TARGETS)
