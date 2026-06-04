@@ -10,12 +10,14 @@
 
 ### Features
 
+- **Real Strudel WebView Engine** — Live-code music with Tidal Cycles notation (skip button, error catcher, module support)
+- **License Activation** — Visible "Activate / Enter License" in Help menu, online/offline activation
 - **AI Chat Assistant** — Natural language control: create tracks, generate chord progressions, automate parameters
 - **261 Built-in Instruments** — General MIDI SoundFont library (piano, strings, brass, woodwinds, guitars, synths, drums)
 - **4OSC Synthesizer** — Four-oscillator subtractive synth with 26 factory presets
 - **Faust DSP Effects** — Shimmer Verb, Tape Warble, Stereo Widener, Analog Warmth, Space Echo
 - **Virtual Keyboard** — Logic Pro-style Musical Typing (Ctrl+K) with pitch bend, mod wheel, sustain
-- **Piano Roll** — Pencil tool for drawing notes, keyboard slide preview
+- **Piano Roll** — Pencil tool for drawing notes, keyboard slide preview, MIDI fixes (velocity, note-off, sustain)
 - **Plugin Support** — VST3/CLAP auto-scanning on first launch
 - **Multi-track Recording** — Audio and MIDI recording with unlimited tracks
 
@@ -46,12 +48,14 @@ cmake --build build --target magda_daw_app
 
 ### 功能
 
+- **真实 Strudel WebView 引擎** — 用 Tidal Cycles 记号实时编码音乐（跳过按钮、错误捕获、模块支持）
+- **许可证激活** — 帮助菜单可见"激活/输入许可证"项，支持在线/离线激活
 - **AI 聊天助手** — 自然语言控制：创建轨道、生成和弦、自动化参数
 - **261 种内置乐器** — GM 音色库（钢琴、弦乐、铜管、木管、吉他、合成器、鼓组）
 - **4OSC 合成器** — 四振荡器减法合成，26 个工厂预设
 - **Faust 效果器** — 微光混响、磁带抖动、立体声加宽、模拟温暖、太空回声
 - **虚拟键盘** — Logic 风格 Musical Typing（Ctrl+K），弯音/调制/延音
-- **钢琴卷帘窗** — 铅笔工具画音符、键盘滑音预览
+- **钢琴卷帘窗** — 铅笔工具画音符、键盘滑音预览、MIDI 修复（力度、Note-off、延音）
 - **插件支持** — 首次启动自动扫描 VST3/CLAP
 - **多轨录音** — 音频和 MIDI，无限轨道
 
