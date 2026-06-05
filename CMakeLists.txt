@@ -149,20 +149,25 @@ set(SFIZZ_DEMOS OFF CACHE BOOL "" FORCE)
 set(SFIZZ_DEVTOOLS OFF CACHE BOOL "" FORCE)
 set(SFIZZ_SHARED OFF CACHE BOOL "" FORCE)
 set(ENABLE_LTO OFF CACHE BOOL "" FORCE)
-# Apply patch to fix Voice.cpp C++17 hex float literals (convert to C++14 decimal)
-execute_process(
-    COMMAND git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/sfizz-voice-cpp14.patch
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sfizz
-    RESULT_VARIABLE _patch_check
-    OUTPUT_QUIET ERROR_QUIET
-)
-if(_patch_check EQUAL 0)
+# Apply patches to sfizz before configuring it (CI builds the upstream submodule,
+# so local fixes must live as patches in the repo root):
+#   - sfizz-voice-cpp14.patch:   Voice.cpp C++17 hex float literals -> C++14 decimal
+#   - sfizz-msvc-runtime.patch:  force /MD (dynamic CRT) so it links with the app
+foreach(_sfizz_patch sfizz-voice-cpp14.patch sfizz-msvc-runtime.patch)
     execute_process(
-        COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/sfizz-voice-cpp14.patch
-     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sfizz
+        COMMAND git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/${_sfizz_patch}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sfizz
+        RESULT_VARIABLE _patch_check
         OUTPUT_QUIET ERROR_QUIET
     )
-endif()
+    if(_patch_check EQUAL 0)
+        execute_process(
+            COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/${_sfizz_patch}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sfizz
+            OUTPUT_QUIET ERROR_QUIET
+        )
+    endif()
+endforeach()
 # Force dynamic CRT globally for sfizz and all its dependencies (abseil, etc.)
 set(_SAVED_MSVC_RUNTIME ${CMAKE_MSVC_RUNTIME_LIBRARY})
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

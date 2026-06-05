@@ -1,0 +1,13 @@
+diff --git a/cmake/SfizzConfig.cmake b/cmake/SfizzConfig.cmake
+index 5848c72d..1f8498ca 100644
+--- a/cmake/SfizzConfig.cmake
++++ b/cmake/SfizzConfig.cmake
+@@ -107,7 +107,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+     endif()
+ elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+     add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/Zc:__cplusplus>)
+-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
++    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+ endif()
+ 
+ function(sfizz_enable_fast_math NAME)
