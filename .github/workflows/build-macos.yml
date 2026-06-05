@@ -49,7 +49,16 @@ jobs:
           mkdir dmg_staging
           cp -R "$APP" dmg_staging/
           ln -s /Applications dmg_staging/Applications
-          hdiutil create -volname "Blitz" -srcfolder dmg_staging -ov -format UDZO Blitz-arm64.dmg
+          # hdiutil intermittently fails with "Resource busy" on CI runners; retry.
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname "Blitz" -srcfolder dmg_staging -ov -format UDZO Blitz-arm64.dmg; then
+              break
+            fi
+            echo "hdiutil attempt $attempt failed, retrying in 10s..."
+            hdiutil detach /Volumes/Blitz 2>/dev/null || true
+            sleep 10
+            [ "$attempt" = 5 ] && { echo "hdiutil failed after 5 attempts"; exit 1; }
+          done
 
       - uses: actions/upload-artifact@v4
         with:
@@ -96,7 +105,16 @@ jobs:
           mkdir dmg_staging
           cp -R "$APP" dmg_staging/
           ln -s /Applications dmg_staging/Applications
-          hdiutil create -volname "Blitz" -srcfolder dmg_staging -ov -format UDZO Blitz-x86.dmg
+          # hdiutil intermittently fails with "Resource busy" on CI runners; retry.
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname "Blitz" -srcfolder dmg_staging -ov -format UDZO Blitz-x86.dmg; then
+              break
+            fi
+            echo "hdiutil attempt $attempt failed, retrying in 10s..."
+            hdiutil detach /Volumes/Blitz 2>/dev/null || true
+            sleep 10
+            [ "$attempt" = 5 ] && { echo "hdiutil failed after 5 attempts"; exit 1; }
+          done
 
       - uses: actions/upload-artifact@v4
         with:
