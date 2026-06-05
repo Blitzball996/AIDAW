@@ -5,6 +5,10 @@ on:
     branches: [master]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ----------- arm64 (Apple Silicon) modern build, macOS 11+ -----------
   build-macos-arm64:
@@ -52,11 +56,11 @@ jobs:
           name: Blitz-macOS-arm64
           path: Blitz-arm64.dmg
 
-  # ----------- x86_64 legacy build, macOS 10.14+ -----------
+  # ----------- x86_64 legacy build cross-compiled on macOS 14, macOS 10.13+ -----------
   build-macos-x86-legacy:
-    runs-on: macos-13    # last runner with x86_64 support
+    runs-on: macos-14
     env:
-      MACOSX_DEPLOYMENT_TARGET: "10.14"
+      MACOSX_DEPLOYMENT_TARGET: "10.13"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,7 +82,7 @@ jobs:
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 \
             -DCMAKE_OSX_ARCHITECTURES="x86_64" \
             -DMAGDA_ENABLE_LOCAL_LLM=OFF
 
