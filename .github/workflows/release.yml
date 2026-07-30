@@ -29,8 +29,19 @@ jobs:
       - name: Download GeneralUser GS SoundFont
         run: |
           mkdir -p assets/soundfonts
-          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
-            -o assets/soundfonts/GeneralUser_GS.sf2
+          # Upstream renamed the file; the old versioned path now 404s and curl -L
+          # happily writes GitHub's HTML error page into the .sf2, silently
+          # shipping a soundfont the player cannot parse (= no audio at all).
+          curl -fL --retry 3 --retry-delay 5             "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser-GS.sf2"             -o assets/soundfonts/GeneralUser_GS.sf2
+          # Fail the build rather than ship a broken soundfont: check RIFF magic
+          # and a plausible size (the real file is ~31 MB).
+          size=$(wc -c < assets/soundfonts/GeneralUser_GS.sf2)
+          magic=$(head -c 4 assets/soundfonts/GeneralUser_GS.sf2)
+          if [ "$magic" != "RIFF" ] || [ "$size" -lt 10000000 ]; then
+            echo "SoundFont download invalid: magic='$magic' size=$size"
+            exit 1
+          fi
+          echo "SoundFont OK: $size bytes"
 
       - name: Configure CMake
         run: |
@@ -49,6 +60,17 @@ jobs:
             find build -name "*.app" -type d
             exit 1
           fi
+          # Unsigned .app bundles that travel through a zip/dmg arrive with a
+          # broken/absent signature, and macOS reports that as "Blitz.app is
+          # damaged and can't be opened" rather than as a signing problem.
+          # An ad-hoc signature (no paid Developer ID needed) makes the bundle
+          # internally consistent so Gatekeeper shows the normal
+          # "unidentified developer" prompt instead, which the user can accept.
+          # --deep is required: every embedded dylib/framework must be signed
+          # too, and the outermost seal must be applied last.
+          xattr -cr "$APP_PATH"
+          codesign --force --deep --sign - --timestamp=none "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           mkdir -p dmg_staging
           cp -R "$APP_PATH" dmg_staging/
           ln -s /Applications dmg_staging/Applications
@@ -86,8 +108,19 @@ jobs:
       - name: Download GeneralUser GS SoundFont
         run: |
           mkdir -p assets/soundfonts
-          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
-            -o assets/soundfonts/GeneralUser_GS.sf2
+          # Upstream renamed the file; the old versioned path now 404s and curl -L
+          # happily writes GitHub's HTML error page into the .sf2, silently
+          # shipping a soundfont the player cannot parse (= no audio at all).
+          curl -fL --retry 3 --retry-delay 5             "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser-GS.sf2"             -o assets/soundfonts/GeneralUser_GS.sf2
+          # Fail the build rather than ship a broken soundfont: check RIFF magic
+          # and a plausible size (the real file is ~31 MB).
+          size=$(wc -c < assets/soundfonts/GeneralUser_GS.sf2)
+          magic=$(head -c 4 assets/soundfonts/GeneralUser_GS.sf2)
+          if [ "$magic" != "RIFF" ] || [ "$size" -lt 10000000 ]; then
+            echo "SoundFont download invalid: magic='$magic' size=$size"
+            exit 1
+          fi
+          echo "SoundFont OK: $size bytes"
 
       - name: Configure CMake (no llama.cpp for 10.13 compat)
         run: |
@@ -107,6 +140,17 @@ jobs:
             find build -name "*.app" -type d
             exit 1
           fi
+          # Unsigned .app bundles that travel through a zip/dmg arrive with a
+          # broken/absent signature, and macOS reports that as "Blitz.app is
+          # damaged and can't be opened" rather than as a signing problem.
+          # An ad-hoc signature (no paid Developer ID needed) makes the bundle
+          # internally consistent so Gatekeeper shows the normal
+          # "unidentified developer" prompt instead, which the user can accept.
+          # --deep is required: every embedded dylib/framework must be signed
+          # too, and the outermost seal must be applied last.
+          xattr -cr "$APP_PATH"
+          codesign --force --deep --sign - --timestamp=none "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           mkdir -p dmg_staging
           cp -R "$APP_PATH" dmg_staging/
           ln -s /Applications dmg_staging/Applications
@@ -158,8 +202,19 @@ jobs:
       - name: Download GeneralUser GS SoundFont
         run: |
           mkdir -p assets/soundfonts
-          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
-            -o assets/soundfonts/GeneralUser_GS.sf2
+          # Upstream renamed the file; the old versioned path now 404s and curl -L
+          # happily writes GitHub's HTML error page into the .sf2, silently
+          # shipping a soundfont the player cannot parse (= no audio at all).
+          curl -fL --retry 3 --retry-delay 5             "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser-GS.sf2"             -o assets/soundfonts/GeneralUser_GS.sf2
+          # Fail the build rather than ship a broken soundfont: check RIFF magic
+          # and a plausible size (the real file is ~31 MB).
+          size=$(wc -c < assets/soundfonts/GeneralUser_GS.sf2)
+          magic=$(head -c 4 assets/soundfonts/GeneralUser_GS.sf2)
+          if [ "$magic" != "RIFF" ] || [ "$size" -lt 10000000 ]; then
+            echo "SoundFont download invalid: magic='$magic' size=$size"
+            exit 1
+          fi
+          echo "SoundFont OK: $size bytes"
 
       - name: Configure CMake
         run: |
@@ -199,8 +254,19 @@ jobs:
         shell: bash
         run: |
           mkdir -p assets/soundfonts
-          curl -L "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser%20GS%20v1.471.sf2" \
-            -o assets/soundfonts/GeneralUser_GS.sf2
+          # Upstream renamed the file; the old versioned path now 404s and curl -L
+          # happily writes GitHub's HTML error page into the .sf2, silently
+          # shipping a soundfont the player cannot parse (= no audio at all).
+          curl -fL --retry 3 --retry-delay 5             "https://github.com/mrbumpy409/GeneralUser-GS/raw/main/GeneralUser-GS.sf2"             -o assets/soundfonts/GeneralUser_GS.sf2
+          # Fail the build rather than ship a broken soundfont: check RIFF magic
+          # and a plausible size (the real file is ~31 MB).
+          size=$(wc -c < assets/soundfonts/GeneralUser_GS.sf2)
+          magic=$(head -c 4 assets/soundfonts/GeneralUser_GS.sf2)
+          if [ "$magic" != "RIFF" ] || [ "$size" -lt 10000000 ]; then
+            echo "SoundFont download invalid: magic='$magic' size=$size"
+            exit 1
+          fi
+          echo "SoundFont OK: $size bytes"
 
       - name: Configure CMake
         run: |
