@@ -15,6 +15,8 @@ dsl_grammar.hpp
     harmony_theory.hpp
     harmony_plan.hpp
     harmony_plan.cpp
+    daw_tools.hpp
+    daw_tools.cpp
     internal_plugins.hpp
     compact_parser.hpp
     compact_parser.cpp

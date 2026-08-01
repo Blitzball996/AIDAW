@@ -2,6 +2,7 @@
 
 #include "../daw/audio/plugins/InstrumentCatalog.hpp"
 #include "../daw/core/Config.hpp"
+#include "daw_tools.hpp"
 #include "dsl_grammar.hpp"
 #include "llm_client_factory.hpp"
 
@@ -68,6 +69,17 @@ After CLIP, ARP/CHORD/NOTE apply to that clip automatically.
 Use a numeric id to target a different track: CLIP 2 1 4, SET 3 vol=-6
 
 TALKING TO THE USER:
+LOOKING THINGS UP:
+You have read-only tools (list_tracks, read_track, read_clip, list_instruments,
+list_plugin_params). Use them when the answer changes what you would write:
+- Before editing existing music, read_clip the part you are about to change so
+  you modify it rather than replacing it.
+- Before PARAM, list_plugin_params so you use real parameter names.
+- Before loading an instrument you are unsure of, list_instruments.
+Do not call tools when the request is self-contained ("create a bass track").
+They cost a round-trip. When you have what you need, stop calling them and
+answer with instructions.
+
 ASK and SAY are how you speak. Everything else you emit is executed silently.
 - Emit ASK only when you genuinely cannot proceed: the request is ambiguous in
   a way that changes what you would write, or it names something that does not
@@ -178,14 +190,52 @@ DAWAgent::GenerateResult DAWAgent::generate(const std::string& message) {
     request.userMessage = juce::String::fromUTF8(message.c_str());
     request.temperature = 0.1f;
 
-    auto response = client->sendRequest(request);
+    // Offer the read-only inspection tools. Providers that do not implement
+    // tool calling ignore this and the exchange stays a single round-trip.
+    request.tools = DawToolRegistry::toolDefs();
+    request.messages.push_back(llm::Message::user(request.userMessage));
 
-    if (!response.success) {
-        DBG("MAGDA DAWAgent ERROR (" + client->getName() + "/" + client->getConfig().model +
-            "): " + response.error);
-        result.error = response.error.toStdString();
-        result.hasError = true;
-        return result;
+    // Tool loop: the model may look things up before committing to an answer.
+    // Bounded because a model that keeps calling tools without converging
+    // would otherwise spin against a paid endpoint indefinitely.
+    constexpr int kMaxToolRounds = 6;
+    llm::Response response;
+
+    for (int round = 0;; ++round) {
+        if (shouldStop_.load()) {
+            result.error = "Cancelled";
+            result.hasError = true;
+            return result;
+        }
+
+        response = client->sendRequest(request);
+
+        if (!response.success) {
+            DBG("MAGDA DAWAgent ERROR (" + client->getName() + "/" + client->getConfig().model +
+                "): " + response.error);
+            result.error = response.error.toStdString();
+            result.hasError = true;
+            return result;
+        }
+
+        if (response.toolCalls.empty())
+            break;
+
+        if (round >= kMaxToolRounds) {
+            // Stop asking and make it answer with what it now knows, rather
+            // than failing the turn outright.
+            request.tools.clear();
+            request.messages.push_back(llm::Message::user(
+                "Tool budget reached. Answer now with instructions only, using what you have."));
+            continue;
+        }
+
+        request.messages.push_back(llm::Message::assistant(response.text, response.toolCalls));
+        for (const auto& call : response.toolCalls) {
+            DBG("MAGDA DAWAgent tool: " + call.name + " " + call.arguments);
+            auto toolResult = DawToolRegistry::dispatch(api_, call.name, call.arguments);
+            request.messages.push_back(llm::Message::toolResult(call.id, toolResult));
+        }
     }
 
     auto trimmedText = response.text.trim();

@@ -29,7 +29,7 @@ Response curlFallback(const juce::String& endpoint, const juce::String& body,
     args.add("--connect-timeout");
     args.add("30");
     args.add("--max-time");
-    args.add("120");
+    args.add("300");
     args.add("-d");
     args.add("@" + tempBody.getFullPathName());
 
@@ -57,7 +57,7 @@ Response curlFallback(const juce::String& endpoint, const juce::String& body,
     args.add("--connect-timeout");
     args.add("30");
     args.add("--max-time");
-    args.add("120");
+    args.add("300");
     args.add("-d");
     args.add("@" + tempBody.getFullPathName());
 
@@ -114,6 +114,27 @@ Response curlFallback(const juce::String& endpoint, const juce::String& body,
 
 }  // namespace
 
+/** A tool call the caller never asked for is not a usable answer.
+
+    When Request::tools is empty and the model still returns tool_calls with no
+    text, something between us and the model added a tool harness of its own —
+    in practice a relay channel that prepends a coding-agent system prompt. The
+    text is empty, so without this the caller sees a bare "failed to parse" and
+    has no way to tell that from a malformed response. */
+void LLMClient::applyUnsolicitedToolCallDiagnostic(const Request& request, Response& response) {
+    if (response.toolCalls.empty() || !request.tools.empty())
+        return;
+    if (response.text.isNotEmpty())
+        return;  // there is still usable text; leave it alone
+
+    response.success = false;
+    response.error =
+        "The model replied with a tool call (" + response.toolCalls.front().name
+        + ") instead of text, so there is nothing to use. This usually means the endpoint is "
+          "prepending an agent/coding system prompt to the request. Disable that channel's "
+          "system prompt override, or pick a model that is not routed through it.";
+}
+
 Response LLMClient::sendRequest(const Request& request) const {
     Response response;
     auto startTime = juce::Time::getMillisecondCounterHiRes();
@@ -146,8 +167,12 @@ Response LLMClient::sendRequest(const Request& request) const {
     if (stream == nullptr) {
         // JUCE WinINet failed — fallback to curl (handles TUN/VPN proxies)
         auto fallback = curlFallback(getEndpointUrl(), body, headers, startTime);
-        if (fallback.success)
-            return parseResponseBody(fallback.text);
+        if (fallback.success) {
+            auto parsed = parseResponseBody(fallback.text);
+            parsed.wallSeconds = fallback.wallSeconds;
+            LLMClient::applyUnsolicitedToolCallDiagnostic(request, parsed);
+            return parsed;
+        }
         if (!fallback.error.isEmpty()) {
             response.error = fallback.error;
             response.wallSeconds = fallback.wallSeconds;
@@ -167,6 +192,7 @@ Response LLMClient::sendRequest(const Request& request) const {
 
     response = parseResponseBody(responseText);
     response.wallSeconds = (juce::Time::getMillisecondCounterHiRes() - startTime) / 1000.0;
+    LLMClient::applyUnsolicitedToolCallDiagnostic(request, response);
     return response;
 }
 

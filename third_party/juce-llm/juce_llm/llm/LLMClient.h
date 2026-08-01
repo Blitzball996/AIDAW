@@ -30,6 +30,15 @@ class LLMClient {
     /** Parse a JSON response string into a Response. */
     virtual Response parseResponseBody(const juce::String& jsonString) const = 0;
 
+    /** Turn an unrequested tool call into a diagnosed failure.
+
+        parseResponseBody cannot decide this on its own: a tool call with no
+        text is a perfectly good reply when the caller offered tools, and a
+        symptom of an endpoint injecting its own agent harness when it did not.
+        Only the request knows which case applies, so sendRequest applies this
+        after parsing. Exposed as a static so it can be tested directly. */
+    static void applyUnsolicitedToolCallDiagnostic(const Request& request, Response& response);
+
     //==============================================================================
     // Data interface — streaming (optional override)
 

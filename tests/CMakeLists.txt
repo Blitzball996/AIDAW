@@ -20,6 +20,7 @@ add_executable(magda_midi_fix_tests
     tests/test_pianoroll_note_position.cpp
     tests/test_llm_response_parse.cpp
     tests/test_compact_parser_dialog.cpp
+    tests/test_llm_tool_calling.cpp
 )
 
 target_link_libraries(magda_midi_fix_tests

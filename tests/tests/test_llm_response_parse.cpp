@@ -55,11 +55,34 @@ TEST_CASE("OpenAI-format tool call with empty content is diagnosed, not mis-pars
 
     auto response = client.parseResponseBody(body);
 
+    // Parsing itself succeeds — a tool call is a well-formed reply. Whether it
+    // is usable depends on whether the caller offered tools, which is decided
+    // one layer up.
+    REQUIRE(response.toolCalls.size() == 1);
+    REQUIRE(response.toolCalls[0].name == "Glob");
+
+    llm::Request requestWithoutTools;  // we offered nothing
+    llm::LLMClient::applyUnsolicitedToolCallDiagnostic(requestWithoutTools, response);
+
     REQUIRE_FALSE(response.success);
     // Must name the offending tool so the cause is identifiable from the UI.
     REQUIRE(response.error.contains("Glob"));
     // Must not fall back to the uninformative generic message.
     REQUIRE_FALSE(response.error.startsWith("Failed to parse response"));
+}
+
+TEST_CASE("A tool call we did ask for is left alone") {
+    llm::Response response;
+    response.success = true;
+    response.toolCalls.push_back({"call_1", "read_clip", "{}"});
+
+    llm::Request request;
+    request.tools.push_back({"read_clip", "Read notes", juce::var()});
+
+    llm::LLMClient::applyUnsolicitedToolCallDiagnostic(request, response);
+
+    REQUIRE(response.success);
+    REQUIRE(response.error.isEmpty());
 }
 
 TEST_CASE("OpenAI-format normal content still parses") {
@@ -85,6 +108,12 @@ TEST_CASE("Anthropic-format tool_use with no text is diagnosed") {
     })JSON";
 
     auto response = client.parseResponseBody(body);
+
+    REQUIRE(response.toolCalls.size() == 1);
+    REQUIRE(response.toolCalls[0].name == "Glob");
+
+    llm::Request requestWithoutTools;
+    llm::LLMClient::applyUnsolicitedToolCallDiagnostic(requestWithoutTools, response);
 
     REQUIRE_FALSE(response.success);
     REQUIRE(response.error.contains("Glob"));

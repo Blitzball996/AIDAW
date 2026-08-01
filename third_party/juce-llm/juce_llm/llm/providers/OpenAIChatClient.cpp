@@ -8,14 +8,73 @@ juce::String OpenAIChatClient::buildRequestBody(const Request& request) const {
     sysMsg->setProperty("content", request.systemPrompt);
     messagesArray.add(juce::var(sysMsg));
 
-    auto* userMsg = new juce::DynamicObject();
-    userMsg->setProperty("role", "user");
-    userMsg->setProperty("content", request.userMessage);
-    messagesArray.add(juce::var(userMsg));
+    if (request.messages.empty()) {
+        auto* userMsg = new juce::DynamicObject();
+        userMsg->setProperty("role", "user");
+        userMsg->setProperty("content", request.userMessage);
+        messagesArray.add(juce::var(userMsg));
+    } else {
+        for (const auto& m : request.messages) {
+            auto* msg = new juce::DynamicObject();
+            switch (m.role) {
+                case Message::Role::User:
+                    msg->setProperty("role", "user");
+                    msg->setProperty("content", m.content);
+                    break;
+
+                case Message::Role::Assistant: {
+                    msg->setProperty("role", "assistant");
+                    // An assistant turn that called tools may legitimately have
+                    // no text; the API still requires the key to be present.
+                    msg->setProperty("content", m.content);
+                    if (!m.toolCalls.empty()) {
+                        auto calls = juce::Array<juce::var>();
+                        for (const auto& tc : m.toolCalls) {
+                            auto* fn = new juce::DynamicObject();
+                            fn->setProperty("name", tc.name);
+                            fn->setProperty("arguments", tc.arguments);
+
+                            auto* call = new juce::DynamicObject();
+                            call->setProperty("id", tc.id);
+                            call->setProperty("type", "function");
+                            call->setProperty("function", juce::var(fn));
+                            calls.add(juce::var(call));
+                        }
+                        msg->setProperty("tool_calls", calls);
+                    }
+                    break;
+                }
+
+                case Message::Role::Tool:
+                    msg->setProperty("role", "tool");
+                    msg->setProperty("tool_call_id", m.toolCallId);
+                    msg->setProperty("content", m.content);
+                    break;
+            }
+            messagesArray.add(juce::var(msg));
+        }
+    }
 
     auto* payload = new juce::DynamicObject();
     payload->setProperty("model", config_.model);
     payload->setProperty("messages", messagesArray);
+
+    if (!request.tools.empty()) {
+        auto toolsArray = juce::Array<juce::var>();
+        for (const auto& t : request.tools) {
+            auto* fn = new juce::DynamicObject();
+            fn->setProperty("name", t.name);
+            fn->setProperty("description", t.description);
+            fn->setProperty("parameters", t.parameters);
+
+            auto* tool = new juce::DynamicObject();
+            tool->setProperty("type", "function");
+            tool->setProperty("function", juce::var(fn));
+            toolsArray.add(juce::var(tool));
+        }
+        payload->setProperty("tools", toolsArray);
+    }
+
     if (!config_.noTemperature)
         payload->setProperty("temperature", (double)request.temperature);
 
@@ -86,28 +145,25 @@ Response OpenAIChatClient::parseResponseBody(const juce::String& jsonString) con
             const auto& choice = (*choices)[0];
             response.text = choice["message"]["content"].toString().trim();
             response.success = response.text.isNotEmpty();
+            response.truncated = choice["finish_reason"].toString() == "length";
 
-            // A relay that injects an agent system prompt (e.g. a Claude Code
-            // Max channel with system_prompt_override enabled) can push the
-            // model into tool-calling mode. It then answers with tool_calls and
-            // an empty content string, which is a well-formed response — so the
-            // generic "failed to parse" message below is actively misleading.
-            // Name the tool and the likely cause instead.
-            if (!response.success) {
-                if (auto* toolCalls = choice["message"]["tool_calls"].getArray()) {
-                    if (toolCalls->size() > 0) {
-                        auto toolName = (*toolCalls)[0]["function"]["name"].toString();
-                        response.error =
-                            "The model replied with a tool call"
-                            + (toolName.isNotEmpty() ? " (" + toolName + ")" : juce::String())
-                            + " instead of text, so there is nothing to use. This usually means "
-                              "the endpoint is prepending an agent/coding system prompt to the "
-                              "request. Disable that channel's system prompt override, or pick a "
-                              "model that is not routed through it.";
-                        return response;
-                    }
+            if (auto* toolCalls = choice["message"]["tool_calls"].getArray()) {
+                for (const auto& tc : *toolCalls) {
+                    ToolCall call;
+                    call.id = tc["id"].toString();
+                    call.name = tc["function"]["name"].toString();
+                    call.arguments = tc["function"]["arguments"].toString();
+                    if (call.name.isNotEmpty())
+                        response.toolCalls.push_back(std::move(call));
                 }
             }
+
+            // A tool call with no text is a well-formed reply, not a parse
+            // failure. Whether it is *usable* depends on if the caller offered
+            // tools, which this function cannot see — LLMClient::sendRequest
+            // makes that call.
+            if (!response.toolCalls.empty())
+                response.success = true;
         }
     }
 
