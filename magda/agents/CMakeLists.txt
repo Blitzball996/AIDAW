@@ -12,6 +12,9 @@ dsl_grammar.hpp
     dsl_interpreter.hpp
     dsl_interpreter.cpp
     music_helpers.hpp
+    harmony_theory.hpp
+    harmony_plan.hpp
+    harmony_plan.cpp
     internal_plugins.hpp
     compact_parser.hpp
     compact_parser.cpp
