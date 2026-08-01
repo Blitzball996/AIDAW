@@ -18,6 +18,7 @@ endif()
 add_executable(magda_midi_fix_tests
     tests/test_midi_clip_split.cpp
     tests/test_pianoroll_note_position.cpp
+    tests/test_llm_response_parse.cpp
 )
 
 target_link_libraries(magda_midi_fix_tests

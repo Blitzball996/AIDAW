@@ -83,8 +83,31 @@ Response OpenAIChatClient::parseResponseBody(const juce::String& jsonString) con
 
     if (auto* choices = json["choices"].getArray()) {
         if (choices->size() > 0) {
-            response.text = (*choices)[0]["message"]["content"].toString().trim();
+            const auto& choice = (*choices)[0];
+            response.text = choice["message"]["content"].toString().trim();
             response.success = response.text.isNotEmpty();
+
+            // A relay that injects an agent system prompt (e.g. a Claude Code
+            // Max channel with system_prompt_override enabled) can push the
+            // model into tool-calling mode. It then answers with tool_calls and
+            // an empty content string, which is a well-formed response — so the
+            // generic "failed to parse" message below is actively misleading.
+            // Name the tool and the likely cause instead.
+            if (!response.success) {
+                if (auto* toolCalls = choice["message"]["tool_calls"].getArray()) {
+                    if (toolCalls->size() > 0) {
+                        auto toolName = (*toolCalls)[0]["function"]["name"].toString();
+                        response.error =
+                            "The model replied with a tool call"
+                            + (toolName.isNotEmpty() ? " (" + toolName + ")" : juce::String())
+                            + " instead of text, so there is nothing to use. This usually means "
+                              "the endpoint is prepending an agent/coding system prompt to the "
+                              "request. Disable that channel's system prompt override, or pick a "
+                              "model that is not routed through it.";
+                        return response;
+                    }
+                }
+            }
         }
     }
 

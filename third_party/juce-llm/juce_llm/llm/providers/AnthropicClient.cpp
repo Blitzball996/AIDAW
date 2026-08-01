@@ -62,11 +62,37 @@ Response AnthropicClient::parseResponseBody(const juce::String& jsonString) cons
     Response response;
     auto json = juce::JSON::parse(jsonString);
 
+    juce::String toolName;
+
     if (auto* content = json["content"].getArray()) {
-        if (content->size() > 0) {
-            response.text = (*content)[0]["text"].toString().trim();
-            response.success = response.text.isNotEmpty();
+        // Concatenate every text block rather than reading only the first one:
+        // a response may lead with a thinking or tool_use block and carry the
+        // actual answer in a later block.
+        juce::String text;
+        for (auto& block : *content) {
+            auto type = block["type"].toString();
+            if (type == "tool_use") {
+                if (toolName.isEmpty())
+                    toolName = block["name"].toString();
+                continue;
+            }
+            auto blockText = block["text"].toString();
+            if (blockText.isNotEmpty())
+                text += blockText;
         }
+        response.text = text.trim();
+        response.success = response.text.isNotEmpty();
+    }
+
+    // Tool call with no text: a well-formed response we simply cannot use.
+    // See the matching comment in OpenAIChatClient::parseResponseBody.
+    if (!response.success && toolName.isNotEmpty()) {
+        response.error = "The model replied with a tool call (" + toolName
+                         + ") instead of text, so there is nothing to use. This usually means the "
+                           "endpoint is prepending an agent/coding system prompt to the request. "
+                           "Disable that channel's system prompt override, or pick a model that is "
+                           "not routed through it.";
+        return response;
     }
 
     if (!response.success)
