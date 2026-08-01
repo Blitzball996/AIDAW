@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../../../../agents/llama_model_manager.hpp"
+#include "../../../../agents/harmony_plan.hpp"
 #include "../../../core/Config.hpp"
 #include "../../../core/SelectionManager.hpp"
 #include "../../../project/ProjectManager.hpp"
@@ -89,6 +90,14 @@ class AIChatConsoleContent : public PanelContent,
     };
 
     void sendMessage(const juce::String& text);
+
+    // Human-in-the-loop harmony review. Runs on the message thread; shows the
+    // reconstructed plan + theory warnings and lets the user approve / edit /
+    // reject before notes are written. Returns true to proceed. Modeled on
+    // CloseCrab's step-by-step / allow-all approval flow.
+    bool reviewHarmony(magda::HarmonyPlan& plan,
+                       std::vector<magda::Instruction>& ir);
+    magda::ReviewMode musicReviewMode_ = magda::ReviewMode::ALLOW_ALL;
     void cancelRequest();
     void restoreSendIcon();
     void appendToChat(const juce::String& text);
@@ -194,6 +203,12 @@ class AIChatConsoleContent : public PanelContent,
     std::atomic<bool> shouldStop_{false};
     std::atomic<bool> processing_{false};
     juce::String pendingMessage_;
+
+    // Snapshot of the arrangement, captured on the message thread in
+    // sendMessage() and read by RequestThread. Built here rather than inside
+    // the agent because walking TrackManager/ClipManager off the message
+    // thread would race with edits.
+    std::string pendingProjectContext_;
     int dotCount_{0};
 
     // Config status bar

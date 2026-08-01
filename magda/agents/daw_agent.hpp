@@ -91,7 +91,7 @@ class DAWAgent : public AgentInterface {
 
   private:
     /** Get the compact system prompt with instruction set. */
-    static const char* getCompactSystemPrompt();
+    static juce::String getCompactSystemPrompt();
 
     MagdaApi& api_;
     CompactParser parser_;

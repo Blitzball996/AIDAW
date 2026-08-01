@@ -22,6 +22,7 @@ enum class OpCode {
     Mute,        // Mute track by name
     Solo,        // Solo track by name
     Set,         // Set track properties
+    Param,       // Set parameters on a track's instrument / last-added plugin
     Clip,        // Create clip
     Fx,          // Add FX
     Select,      // Select clips/tracks by criteria
@@ -30,6 +31,8 @@ enum class OpCode {
     Note,        // Add note (on last clip target)
     TrackSwitch, // Switch target track by name (multi-track music generation)
     Repeat,      // Repeat a beat range N times
+    Ask,         // Agent needs a decision from the user; nothing is applied
+    Say,         // Agent note shown alongside whatever was applied
 };
 
 /** How a track is referenced — by 1-based index, by name, or implicitly (last TRACK). */
@@ -68,6 +71,13 @@ struct SoloOp {
 struct SetOp {
     TrackRef target;
     juce::StringPairArray props;  // key=value pairs (vol, pan, mute, solo …)
+};
+
+/** Set parameters on a plugin rather than on the track itself.
+    Targets the track's last-added plugin, falling back to its instrument. */
+struct ParamOp {
+    TrackRef target;
+    juce::StringPairArray params;  // parameter name → value, matched loosely
 };
 
 struct ClipOp {
@@ -129,8 +139,25 @@ struct RepeatOp {
     int times = 1;
 };
 
-using OpPayload = std::variant<TrackOp, DelOp, MuteOp, SoloOp, SetOp, ClipOp, FxOp, SelectOp, ArpOp,
-                               ChordOp, NoteOp, TrackSwitchOp, RepeatOp>;
+/** The agent needs the user to decide something before it can act.
+
+    This is the agent's only way to say "I need input" — without it, a model
+    that asks a question just produces unparseable prose that gets dropped, and
+    the user sees nothing happen. An Ask aborts the batch: nothing is applied,
+    because a model that is unsure should not guess and half-write first. */
+struct AskOp {
+    juce::String question;
+};
+
+/** A note to show the user alongside whatever was applied. Non-blocking —
+    use this for "I did X, you might also want Y", not for real questions. */
+struct SayOp {
+    juce::String message;
+};
+
+using OpPayload = std::variant<TrackOp, DelOp, MuteOp, SoloOp, SetOp, ParamOp, ClipOp, FxOp,
+                               SelectOp, ArpOp, ChordOp, NoteOp, TrackSwitchOp, RepeatOp, AskOp,
+                               SayOp>;
 
 struct Instruction {
     OpCode opcode;

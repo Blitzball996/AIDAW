@@ -9,6 +9,7 @@
 #include "audio/plugins/ArpeggiatorPlugin.hpp"
 #include "audio/plugins/DrumGridPlugin.hpp"
 #include "audio/plugins/FaustPlugin.hpp"
+#include "audio/plugins/InstrumentCatalog.hpp"
 #include "audio/plugins/MagdaSamplerPlugin.hpp"
 #include "audio/plugins/MidiChordEnginePlugin.hpp"
 #include "audio/plugins/SoundFontPlugin.hpp"
@@ -99,27 +100,39 @@ class PluginBrowserContent::PluginTreeItem : public juce::TreeViewItem {
         auto iconArea = bounds.removeFromLeft(18);
         auto iconBounds = iconArea.toFloat().reduced(1.0f);
         if (plugin_.category == "Instrument") {
-            juce::Colour badgeColour;
-            juce::String badgeText;
-            if (plugin_.subcategory == "Piano")          { badgeColour = juce::Colour(0xFF7B42C8); badgeText = "Pi"; }
-            else if (plugin_.subcategory == "Guitar")    { badgeColour = juce::Colour(0xFFF09040); badgeText = "Gt"; }
-            else if (plugin_.subcategory == "Bass")      { badgeColour = juce::Colour(0xFFC03050); badgeText = "Ba"; }
-            else if (plugin_.subcategory == "Strings")   { badgeColour = juce::Colour(0xFF4CD964); badgeText = "St"; }
-            else if (plugin_.subcategory == "Brass")     { badgeColour = juce::Colour(0xFFF0B030); badgeText = "Br"; }
-            else if (plugin_.subcategory == "Woodwind")  { badgeColour = juce::Colour(0xFF5AC8FA); badgeText = "Ww"; }
-            else if (plugin_.subcategory == "Drums")     { badgeColour = juce::Colour(0xFFFF3B30); badgeText = "Dr"; }
-            else if (plugin_.subcategory == "Synth")     { badgeColour = juce::Colour(0xFF4A90D9); badgeText = "Sy"; }
-            else if (plugin_.subcategory == "Pad")       { badgeColour = juce::Colour(0xFF30C0A0); badgeText = "Pd"; }
-            else if (plugin_.subcategory == "Organ")     { badgeColour = juce::Colour(0xFF8E8E93); badgeText = "Or"; }
-            else if (plugin_.subcategory == "Chromatic") { badgeColour = juce::Colour(0xFFFF6B9D); badgeText = "Ch"; }
-            else                                         { badgeColour = juce::Colour(0xFF7B42C8); badgeText = "In"; }
+            // Instruments used to render as a coloured chip with a two-letter
+            // abbreviation ("Pi", "Gt", …) while every other category already
+            // had a real icon. Draw the instrument glyph instead and keep the
+            // per-category colour, so the row still reads at a glance.
+            juce::Colour tint;
+            if (plugin_.subcategory == "Piano")          tint = juce::Colour(0xFF7B42C8);
+            else if (plugin_.subcategory == "Guitar")    tint = juce::Colour(0xFFF09040);
+            else if (plugin_.subcategory == "Bass")      tint = juce::Colour(0xFFC03050);
+            else if (plugin_.subcategory == "Strings")   tint = juce::Colour(0xFF4CD964);
+            else if (plugin_.subcategory == "Ensemble")  tint = juce::Colour(0xFF34B75A);
+            else if (plugin_.subcategory == "Brass")     tint = juce::Colour(0xFFF0B030);
+            else if (plugin_.subcategory == "Woodwind")  tint = juce::Colour(0xFF5AC8FA);
+            else if (plugin_.subcategory == "Drums")     tint = juce::Colour(0xFFFF3B30);
+            else if (plugin_.subcategory == "Percussion")tint = juce::Colour(0xFFE05A2A);
+            else if (plugin_.subcategory == "Synth")     tint = juce::Colour(0xFF4A90D9);
+            else if (plugin_.subcategory == "Pad")       tint = juce::Colour(0xFF30C0A0);
+            else if (plugin_.subcategory == "Organ")     tint = juce::Colour(0xFF8E8E93);
+            else if (plugin_.subcategory == "Chromatic") tint = juce::Colour(0xFFFF6B9D);
+            else if (plugin_.subcategory == "Ethnic")    tint = juce::Colour(0xFFC8A24A);
+            else if (plugin_.subcategory == "SFX")       tint = juce::Colour(0xFF9E9E9E);
+            else                                         tint = juce::Colour(0xFF7B42C8);
 
-            auto badgeRect = iconBounds.withSizeKeepingCentre(12.0f, 12.0f);
-            g.setColour(badgeColour);
-            g.fillRoundedRectangle(badgeRect, 2.5f);
-            g.setColour(juce::Colours::white);
-            g.setFont(FontManager::getInstance().getUIFont(7.0f));
-            g.drawText(badgeText, badgeRect.toNearestInt(), juce::Justification::centred);
+            if (owner_.instrumentIcon_ != nullptr) {
+                // The drawable is shared across every row, so re-tint per draw
+                // rather than mutating one cached copy per category.
+                auto icon = owner_.instrumentIcon_->createCopy();
+                icon->replaceColour(juce::Colour(0xFFB3B3B3), tint);
+                icon->drawWithin(g, iconBounds, juce::RectanglePlacement::centred, 1.0f);
+            } else {
+                auto dot = iconBounds.withSizeKeepingCentre(10.0f, 10.0f);
+                g.setColour(tint);
+                g.fillEllipse(dot);
+            }
         } else if (plugin_.subcategory == "MIDI" && owner_.midiIcon_) {
             owner_.midiIcon_->drawWithin(g, iconBounds, juce::RectanglePlacement::centred, 1.0f);
         } else if (owner_.effectIcon_) {
@@ -268,11 +281,10 @@ class PluginBrowserContent::CategoryTreeItem : public juce::TreeViewItem {
 PluginBrowserContent::PluginBrowserContent() {
     setName("Plugin Browser");
 
+    // Left un-tinted on purpose: each instrument row re-colours its own copy
+    // by subcategory, so a pre-tint here would be overwritten anyway.
     instrumentIcon_ = juce::Drawable::createFromImageData(BinaryData::INSTRUMENT_DEVICE_svg,
                                                           BinaryData::INSTRUMENT_DEVICE_svgSize);
-    if (instrumentIcon_)
-        instrumentIcon_->replaceColour(juce::Colour(0xFFB3B3B3),
-                                       DarkTheme::getColour(DarkTheme::TEXT_SECONDARY));
 
     effectIcon_ = juce::Drawable::createFromImageData(BinaryData::AUDIODEVICE_svg,
                                                       BinaryData::AUDIODEVICE_svgSize);
@@ -377,67 +389,22 @@ std::vector<PluginBrowserInfo> PluginBrowserContent::getInternalPlugins() {
     list.push_back(PluginBrowserInfo::createInternal("Tidal",
                                                      audio::StrudelPlugin::xmlTypeName, true,
                                                      "Synth"));
-    // GM instrument presets shown as individual entries under their categories
-    static const struct {
-        const char* name;
-        const char* category;
-        int program;
-    } kGMInstruments[] = {
-        // Piano (0-7)
-        {"Grand Piano", "Piano", 0}, {"Bright Piano", "Piano", 1}, {"Electric Grand", "Piano", 2},
-        {"Honky-Tonk", "Piano", 3}, {"Electric Piano 1", "Piano", 4}, {"Electric Piano 2", "Piano", 5},
-        {"Harpsichord", "Piano", 6}, {"Clavinet", "Piano", 7},
-        // Chromatic Percussion (8-15)
-        {"Celesta", "Chromatic", 8}, {"Glockenspiel", "Chromatic", 9}, {"Music Box", "Chromatic", 10},
-        {"Vibraphone", "Chromatic", 11}, {"Marimba", "Chromatic", 12}, {"Xylophone", "Chromatic", 13},
-        // Organ (16-23)
-        {"Drawbar Organ", "Organ", 16}, {"Percussive Organ", "Organ", 17}, {"Rock Organ", "Organ", 18},
-        {"Church Organ", "Organ", 19}, {"Accordion", "Organ", 21},
-        // Guitar (24-31)
-        {"Nylon Guitar", "Guitar", 24}, {"Steel Guitar", "Guitar", 25}, {"Jazz Guitar", "Guitar", 26},
-        {"Clean Electric", "Guitar", 27}, {"Muted Guitar", "Guitar", 28},
-        {"Overdriven Guitar", "Guitar", 29}, {"Distortion Guitar", "Guitar", 30},
-        // Bass (32-39)
-        {"Acoustic Bass", "Bass", 32}, {"Finger Bass", "Bass", 33}, {"Pick Bass", "Bass", 34},
-        {"Fretless Bass", "Bass", 35}, {"Slap Bass 1", "Bass", 36}, {"Synth Bass 1", "Bass", 38},
-        {"Synth Bass 2", "Bass", 39},
-        // Strings (40-55)
-        {"Violin", "Strings", 40}, {"Viola", "Strings", 41}, {"Cello", "Strings", 42},
-        {"Contrabass", "Strings", 43}, {"Tremolo Strings", "Strings", 44},
-        {"Pizzicato Strings", "Strings", 45}, {"Orchestral Harp", "Strings", 46},
-        {"String Ensemble 1", "Strings", 48}, {"String Ensemble 2", "Strings", 49},
-        {"Synth Strings 1", "Strings", 50},
-        // Brass (56-63)
-        {"Trumpet", "Brass", 56}, {"Trombone", "Brass", 57}, {"Tuba", "Brass", 58},
-        {"French Horn", "Brass", 60}, {"Brass Section", "Brass", 61}, {"Synth Brass 1", "Brass", 62},
-        // Woodwind (64-79)
-        {"Soprano Sax", "Woodwind", 64}, {"Alto Sax", "Woodwind", 65}, {"Tenor Sax", "Woodwind", 66},
-        {"Oboe", "Woodwind", 68}, {"Clarinet", "Woodwind", 71}, {"Flute", "Woodwind", 73},
-        {"Piccolo", "Woodwind", 72}, {"Pan Flute", "Woodwind", 75},
-        // Synth Lead (80-87)
-        {"Square Lead", "Synth", 80}, {"Sawtooth Lead", "Synth", 81}, {"Calliope Lead", "Synth", 82},
-        {"Synth Voice", "Synth", 85},
-        // Synth Pad (88-95)
-        {"New Age Pad", "Pad", 88}, {"Warm Pad", "Pad", 89}, {"Polysynth Pad", "Pad", 90},
-        {"Space Voice Pad", "Pad", 91}, {"Sweep Pad", "Pad", 95},
-    };
-    for (const auto& gm : kGMInstruments) {
+    // GM melodic programs and drum kits come from the shared instrument
+    // catalog, which is also what generates the AI agent's instrument list —
+    // one table, so the browser and the agent can never disagree about what
+    // this build can load. See audio/plugins/InstrumentCatalog.hpp.
+    for (const auto& gm : magda::audio::getGMInstruments()) {
         auto pluginId = juce::String("soundfont:") + juce::String(gm.program);
         list.push_back(
             PluginBrowserInfo::createInternal(juce::String(gm.name), pluginId, true, gm.category));
     }
 
-    // GM Drum Kits (bank 128)
-    static const struct { const char* name; int program; } kDrumKits[] = {
-        {"Standard Kit", 0}, {"Room Kit", 8}, {"Power Kit", 16},
-        {"Electronic Kit", 24}, {"TR-808 Kit", 25}, {"Jazz Kit", 32},
-        {"Brush Kit", 40}, {"Orchestra Kit", 48},
-    };
-    for (const auto& dk : kDrumKits) {
+    for (const auto& dk : magda::audio::getDrumKits()) {
         auto pluginId = juce::String("soundfont:128:") + juce::String(dk.program);
         list.push_back(
             PluginBrowserInfo::createInternal(juce::String(dk.name), pluginId, true, "Drums"));
     }
+
 
     // 808/Trap Bass presets (using GM Synth Bass with low octave)
     list.push_back(

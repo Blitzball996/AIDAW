@@ -10,8 +10,11 @@ juce::String AnthropicClient::buildRequestBody(const Request& request) const {
 
     auto* payload = new juce::DynamicObject();
     payload->setProperty("model", config_.model);
+    // 4096 was too tight for long structured output: a full song arrangement
+    // runs past it and comes back truncated mid-line, which the DSL parser then
+    // silently drops. Every model this client targets supports at least 8192.
     int maxTok = request.maxTokens > 0 ? request.maxTokens
-                                       : (config_.maxTokens > 0 ? config_.maxTokens : 4096);
+                                       : (config_.maxTokens > 0 ? config_.maxTokens : 8192);
     payload->setProperty("max_tokens", maxTok);
     payload->setProperty("temperature", (double)request.temperature);
     payload->setProperty("messages", messagesArray);
@@ -84,6 +87,7 @@ Response AnthropicClient::parseResponseBody(const juce::String& jsonString) cons
         response.success = response.text.isNotEmpty();
     }
 
+    response.truncated = json["stop_reason"].toString() == "max_tokens";
     // Tool call with no text: a well-formed response we simply cannot use.
     // See the matching comment in OpenAIChatClient::parseResponseBody.
     if (!response.success && toolName.isNotEmpty()) {

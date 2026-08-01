@@ -4,6 +4,7 @@
 #include "llm_client_factory.hpp"
 #include "llm_presets.hpp"
 #include "music_memory.hpp"
+#include "harmony_theory.hpp"
 
 namespace magda {
 
@@ -177,6 +178,35 @@ notes.repeat(from_beat=0, to_beat=16, paste_at=16, times=3))PROMPT";
 
 namespace {
 
+/** Wrap a project snapshot in the instructions that turn "compose something"
+    into "revise what is already here".
+
+    Without this the agent only ever sees the user's sentence, so every request
+    reads as a blank-page brief and it rewrites the arrangement from scratch.
+    Returns an empty string when there is no project yet, which keeps the
+    from-nothing behaviour for a new session. */
+juce::String buildEditingContext(const std::string& projectContext) {
+    if (projectContext.empty())
+        return {};
+
+    return juce::String::fromUTF8(projectContext.c_str())
+           + R"PROMPT(
+WORKING WITH THE EXISTING PROJECT (CRITICAL):
+- The arrangement above already exists. Treat the user's message as an edit
+  request against it, not as a brief for a new piece.
+- Only emit operations for what actually changes. Leave every other track and
+  every other bar alone - notes you do not mention are kept.
+- Match what is already there: stay in the established key and tempo, and keep
+  new parts rhythmically consistent with the existing ones unless asked not to.
+- Target the track the user means with [track: Name], using the names above
+  exactly. A name that does not appear above creates a new track.
+- When asked to change something ("make the bass busier", "swap the 3rd chord
+  for a minor"), write the replacement notes for that region only.
+- Only compose a whole arrangement from scratch when the project is empty or
+  the user explicitly asks for a new song.
+)PROMPT";
+}
+
 /** Extract key=value pairs from a parameter string like "root=C4, quality=major, beat=0". */
 juce::StringPairArray parseParams(const juce::String& paramStr) {
     juce::StringPairArray params;
@@ -217,6 +247,30 @@ std::vector<Instruction> MusicAgent::parseDSL(const juce::String& text,
         // Skip comments
         if (trimmed.startsWith("//") || trimmed.startsWith("#"))
             continue;
+
+        // Robustness: after several chat turns local models sometimes wrap a
+        // valid DSL call in stray prose (e.g. "Here: notes.add_chord(...) done").
+        // Strip any leading text before a known DSL token and any trailing text
+        // after the final ')' so the strict checks below still match instead of
+        // silently dropping the line (which left clips empty).
+        {
+            static const char* kTokens[] = {
+                "notes.add_chord(", "notes.add_arpeggio(", "notes.repeat(",
+                "notes.add("};
+            int best = -1;
+            for (const char* tok : kTokens) {
+                int idx = trimmed.indexOf(tok);
+                if (idx >= 0 && (best < 0 || idx < best))
+                    best = idx;
+            }
+            if (best > 0)
+                trimmed = trimmed.substring(best);
+            if (best >= 0) {
+                int lastParen = trimmed.lastIndexOf(")");
+                if (lastParen >= 0 && lastParen < trimmed.length() - 1)
+                    trimmed = trimmed.substring(0, lastParen + 1);
+            }
+        }
 
         // Parse [track: Name] section header
         if (trimmed.startsWith("[track:") && trimmed.endsWith("]")) {
@@ -341,7 +395,8 @@ void logMusicAgentResult(const std::string& rawOutput, const std::vector<Instruc
 
 }  // namespace
 
-MusicAgent::GenerateResult MusicAgent::generate(const std::string& message) {
+MusicAgent::GenerateResult MusicAgent::generate(const std::string& message,
+                                                const std::string& projectContext) {
     GenerateResult result;
 
     if (shouldStop_.load()) {
@@ -372,10 +427,16 @@ MusicAgent::GenerateResult MusicAgent::generate(const std::string& message) {
     llm::Request request;
     auto basePrompt =
         juce::String::fromUTF8(useCompact ? getCompactSystemPrompt() : getDSLSystemPrompt());
+    auto theoryBrief = juce::String::fromUTF8(theory::constraintBrief());
     auto memoryContext = MusicMemory::getInstance().buildContextPrompt();
-    request.systemPrompt = basePrompt + juce::String(memoryContext);
+    request.systemPrompt = basePrompt + theoryBrief + juce::String(memoryContext)
+                           + buildEditingContext(projectContext);
+    // A full arrangement runs well past the 4096-token default and used to come
+    // back truncated mid-line, which the parser then silently discarded -- the
+    // visible symptom was "it only ever writes one section".
+    request.maxTokens = 16000;
     request.userMessage = juce::String::fromUTF8(message.c_str());
-    request.temperature = 0.3f;  // slightly more creative for music
+    request.temperature = 0.2f;  // lower temp keeps the strict DSL format stable
 
     DBG("MAGDA MusicAgent sending request (user message: " + request.userMessage + ")");
 
@@ -393,6 +454,7 @@ MusicAgent::GenerateResult MusicAgent::generate(const std::string& message) {
 
     auto trimmedText = response.text.trim();
     result.rawOutput = trimmedText.toStdString();
+    result.truncated = response.truncated;
 
     if (useCompact) {
         result.instructions = parser_.parse(trimmedText);
@@ -429,7 +491,8 @@ MusicAgent::GenerateResult MusicAgent::generate(const std::string& message) {
 }
 
 MusicAgent::GenerateResult MusicAgent::generateStreaming(const std::string& message,
-                                                         TokenCallback onToken) {
+                                                         TokenCallback onToken,
+                                                         const std::string& projectContext) {
     GenerateResult result;
 
     if (shouldStop_.load()) {
@@ -460,10 +523,16 @@ MusicAgent::GenerateResult MusicAgent::generateStreaming(const std::string& mess
     llm::Request request;
     auto basePrompt =
         juce::String::fromUTF8(useCompact ? getCompactSystemPrompt() : getDSLSystemPrompt());
+    auto theoryBrief = juce::String::fromUTF8(theory::constraintBrief());
     auto memoryContext = MusicMemory::getInstance().buildContextPrompt();
-    request.systemPrompt = basePrompt + juce::String(memoryContext);
+    request.systemPrompt = basePrompt + theoryBrief + juce::String(memoryContext)
+                           + buildEditingContext(projectContext);
+    // A full arrangement runs well past the 4096-token default and used to come
+    // back truncated mid-line, which the parser then silently discarded -- the
+    // visible symptom was "it only ever writes one section".
+    request.maxTokens = 16000;
     request.userMessage = juce::String::fromUTF8(message.c_str());
-    request.temperature = 0.3f;
+    request.temperature = 0.2f;
 
     DBG("MAGDA MusicAgent stream sending request (user message: " + request.userMessage + ")");
 
@@ -488,6 +557,7 @@ MusicAgent::GenerateResult MusicAgent::generateStreaming(const std::string& mess
 
     auto trimmedText = response.text.trim();
     result.rawOutput = trimmedText.toStdString();
+    result.truncated = response.truncated;
 
     if (useCompact) {
         result.instructions = parser_.parse(trimmedText);

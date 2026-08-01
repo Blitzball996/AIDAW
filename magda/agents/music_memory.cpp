@@ -1,11 +1,14 @@
 #include "music_memory.hpp"
 
+#include <algorithm>
+
 #include "../daw/api/clip_api.hpp"
 #include "../daw/api/magda_api.hpp"
 #include "../daw/api/track_api.hpp"
 #include "../daw/core/AppPaths.hpp"
 #include "../daw/core/ClipInfo.hpp"
 #include "../daw/core/ClipManager.hpp"
+#include "../daw/core/RackInfo.hpp"
 #include "../daw/core/TrackManager.hpp"
 
 namespace magda {
@@ -111,14 +114,35 @@ std::string MusicMemory::buildContextPrompt(int maxEntries) const {
     }
 
     auto recent = getRecentEntries(maxEntries);
+    // Conversation history. Keep this SHORT and CLEAN: long, noisy history
+    // (execution-result text, timing tags, multi-line errors) drags the model
+    // off the strict DSL format after a few turns and it stops emitting notes.
     if (!recent.empty()) {
-        prompt += "\nCONVERSATION HISTORY:\n";
+        prompt +=
+            "\nRECENT CONVERSATION (most recent last; context only -- always "
+            "answer in the required DSL format):\n";
         for (const auto& entry : recent) {
+            juce::String content = juce::String(entry.content);
+
+            // Drop the trailing "[123ms router, ...]" timing annotation.
+            int tagPos = content.lastIndexOf("[");
+            if (tagPos > 0 && content.substring(tagPos).containsIgnoreCase("router"))
+                content = content.substring(0, tagPos);
+
+            // Collapse newlines and trim.
+            content = content.replaceCharacters("\r\n", "  ").trim();
+
+            // Skip pure error/warning assistant turns -- not good exemplars.
+            if (entry.role == "assistant" &&
+                (content.startsWithIgnoreCase("error") || content.startsWith("[!]") ||
+                 content.startsWithIgnoreCase("[warning]") || content.isEmpty()))
+                continue;
+
+            if (content.length() > 160)
+                content = content.substring(0, 160) + "...";
+
             prompt += (entry.role == "user" ? "User: " : "Assistant: ");
-            auto content = entry.content;
-            if (content.size() > 300)
-                content = content.substr(0, 300) + "...";
-            prompt += content + "\n";
+            prompt += content.toStdString() + "\n";
         }
     }
 
@@ -198,6 +222,26 @@ std::string MusicMemory::buildDAWSnapshot(MagdaApi& api) {
     auto& tm = api.tracks();
     auto& cm = api.clips();
 
+    // Budget guard: a busy project can hold thousands of notes and this text
+    // goes into every request. Emit notes until the cap, then summarise the
+    // rest so the model is told it is seeing a partial view rather than
+    // silently concluding those bars are empty.
+    constexpr int kMaxNotesEmitted = 400;
+    int notesEmitted = 0;
+    int notesOmitted = 0;
+
+    static const char* kNames[] = {"C",  "C#", "D",  "D#", "E",  "F",
+                                   "F#", "G",  "G#", "A",  "A#", "B"};
+    auto pitchName = [](int noteNumber) {
+        int clamped = std::clamp(noteNumber, 0, 127);
+        return std::string(kNames[clamped % 12]) + std::to_string(clamped / 12 - 1);
+    };
+    auto num = [](double v) {
+        // Compact: drop a trailing ".0" so beats read as 0, 1.5, 4 not 0.000000.
+        auto s = juce::String(v, 3).trimCharactersAtEnd("0").trimCharactersAtEnd(".");
+        return (s.isEmpty() ? juce::String("0") : s).toStdString();
+    };
+
     std::string snapshot = "\n\nCURRENT PROJECT STATE:\n";
     auto tracks = tm.getTracks();
     if (tracks.empty()) {
@@ -209,6 +253,25 @@ std::string MusicMemory::buildDAWSnapshot(MagdaApi& api) {
     int trackIdx = 1;
     for (const auto& track : tracks) {
         snapshot += "  " + std::to_string(trackIdx) + ". " + track.name.toStdString();
+
+        // Instrument / FX chain, so the model can see what it is writing for
+        // and can target PARAM at the right device.
+        {
+            const auto& elements = TrackManager::getInstance().getChainElements(track.id);
+            std::string chain;
+            for (const auto& element : elements) {
+                if (!isDevice(element))
+                    continue;
+                const auto& device = getDevice(element);
+                if (!chain.empty())
+                    chain += " > ";
+                chain += device.name.toStdString();
+                if (device.bypassed)
+                    chain += "(bypassed)";
+            }
+            if (!chain.empty())
+                snapshot += " [" + chain + "]";
+        }
 
         auto clipIds = cm.getClipsOnTrack(track.id);
         if (clipIds.empty()) {
@@ -222,26 +285,50 @@ std::string MusicMemory::buildDAWSnapshot(MagdaApi& api) {
                 snapshot += "    - ";
                 if (!clip->name.isEmpty())
                     snapshot += clip->name.toStdString() + ": ";
-                snapshot += std::to_string(static_cast<int>(clip->midiNotes.size())) + " notes";
+                snapshot += "startBeat=" + num(clip->placement.startBeat)
+                            + " lengthBeats=" + num(clip->placement.lengthBeats) + ", "
+                            + std::to_string(static_cast<int>(clip->midiNotes.size())) + " notes";
+
                 if (!clip->midiNotes.empty()) {
-                    double minBeat = 9999, maxBeat = 0;
-                    int minNote = 127, maxNote = 0;
-                    for (const auto& n : clip->midiNotes) {
-                        if (n.startBeat < minBeat) minBeat = n.startBeat;
-                        if (n.startBeat + n.lengthBeats > maxBeat)
-                            maxBeat = n.startBeat + n.lengthBeats;
-                        if (n.noteNumber < minNote) minNote = n.noteNumber;
-                        if (n.noteNumber > maxNote) maxNote = n.noteNumber;
+                    // Actual note content, not just a count — editing an
+                    // existing part is impossible without knowing what is
+                    // already there. Format: pitch@startBeat:lengthBeats,vel
+                    auto sorted = clip->midiNotes;
+                    std::sort(sorted.begin(), sorted.end(),
+                              [](const MidiNote& a, const MidiNote& b) {
+                                  if (a.startBeat != b.startBeat)
+                                      return a.startBeat < b.startBeat;
+                                  return a.noteNumber < b.noteNumber;
+                              });
+
+                    snapshot += "\n      ";
+                    bool first = true;
+                    for (const auto& n : sorted) {
+                        if (notesEmitted >= kMaxNotesEmitted) {
+                            ++notesOmitted;
+                            continue;
+                        }
+                        if (!first)
+                            snapshot += " ";
+                        snapshot += pitchName(n.noteNumber) + "@" + num(n.startBeat) + ":"
+                                    + num(n.lengthBeats) + "," + std::to_string(n.velocity);
+                        first = false;
+                        ++notesEmitted;
                     }
-                    int bars = static_cast<int>(maxBeat / 4.0) + 1;
-                    snapshot += ", " + std::to_string(bars) + " bars";
-                    snapshot += ", range " + std::to_string(minNote) + "-" + std::to_string(maxNote);
                 }
                 snapshot += "\n";
             }
         }
         trackIdx++;
     }
+
+    if (notesOmitted > 0) {
+        snapshot += "(" + std::to_string(notesOmitted)
+                    + " further notes not shown - ask before assuming those bars are empty)\n";
+    }
+
+    snapshot += "Note format: pitch@startBeat:lengthBeats,velocity (beats are "
+                "relative to the clip start).\n";
 
     return snapshot;
 }

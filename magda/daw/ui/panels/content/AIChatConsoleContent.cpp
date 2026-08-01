@@ -489,7 +489,8 @@ void AIChatConsoleContent::RequestThread::run() {
         }
 
         if (owner_.musicAgent_ && !threadShouldExit()) {
-            auto result = owner_.musicAgent_->generateStreaming(message, musicOnToken);
+            auto result = owner_.musicAgent_->generateStreaming(message, musicOnToken,
+                                                                 owner_.pendingProjectContext_);
             if (threadShouldExit())
                 return;
             if (result.hasError) {
@@ -516,7 +517,8 @@ void AIChatConsoleContent::RequestThread::run() {
         }
     } else if (intent == "MUSIC") {
         if (owner_.musicAgent_) {
-            auto result = owner_.musicAgent_->generateStreaming(message, onToken);
+            auto result = owner_.musicAgent_->generateStreaming(message, onToken,
+                                                                 owner_.pendingProjectContext_);
             if (threadShouldExit())
                 return;
             if (result.hasError) {
@@ -594,13 +596,28 @@ void AIChatConsoleContent::RequestThread::run() {
                             response += "\n";
                         response += musicDesc;
                     }
+                    // Human-in-the-loop: reconstruct a reviewable harmony plan,
+                    // surface it (+ theory warnings), and let the user approve /
+                    // edit / reject before any note is written.
+                    std::vector<magda::Instruction> musicIRToRun = musicIR;
+                    bool harmonyApproved = true;
+                    {
+                        auto plan = magda::planFromInstructions(
+                            musicIRToRun, juce::String(musicDesc));
+                        harmonyApproved = safeThis->reviewHarmony(plan, musicIRToRun);
+                    }
+                    if (!harmonyApproved) {
+                        if (!response.empty())
+                            response += "\n";
+                        response += "Harmony rejected -- nothing was written.";
+                    } else {
                     magda::InstructionExecutor executor(*safeThis->magdaApi_);
                     // Hand the command agent's freshly-created clip (if any)
                     // explicitly to the music executor. Otherwise it will
                     // auto-create a new clip — we never want it to silently
                     // fill whatever clip the user happened to have selected.
                     executor.setSeedClipId(commandClipId);
-                    if (executor.execute(musicIR)) {
+                    if (executor.execute(musicIRToRun)) {
                         // Name the clip after the music agent's description so
                         // users can see what each generated clip represents.
                         // Safe to rename unconditionally: the executor no
@@ -624,12 +641,24 @@ void AIChatConsoleContent::RequestThread::run() {
                         auto results = executor.getResults().toStdString();
                         if (!response.empty())
                             response += "\n";
-                        response += results.empty() ? "OK" : results;
+                        // A question means nothing was applied — show it as a
+                        // prompt to the user rather than as a result line, so
+                        // it is obvious the turn is waiting on them.
+                        auto question = executor.getPendingQuestion();
+                        if (question.isNotEmpty()) {
+                            response += "? " + question.toStdString();
+                        } else {
+                            response += results.empty() ? "OK" : results;
+                            auto notes = executor.getNotes();
+                            if (notes.isNotEmpty())
+                                response += "\n" + notes.toStdString();
+                        }
                     } else {
                         if (!response.empty())
                             response += "\n";
                         response += "Error: " + executor.getError().toStdString();
                     }
+                    }  // end approved branch
                 }
 
                 // Execute IR from automation agent
@@ -800,10 +829,15 @@ AIChatConsoleContent::AIChatConsoleContent() {
     clearButton_.setColour(juce::DrawableButton::backgroundOnColourId,
                            juce::Colours::transparentBlack);
     clearButton_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
-    clearButton_.setTooltip("Clear chat");
+    clearButton_.setTooltip("Clear chat and conversation history");
     clearButton_.setAlpha(0.35f);
     clearButton_.onClick = [this]() {
         chatHistory_.setText(juce::String::charToString(0x25C6) + " Blitz\n\n");
+        // Also drop the history the model actually sees. Clearing only the
+        // visible transcript left MusicMemory intact, so the next request still
+        // carried every earlier turn and the AI kept referring back to work the
+        // user believed they had discarded.
+        magda::MusicMemory::getInstance().clear();
     };
     addAndMakeVisible(clearButton_);
 
@@ -1134,11 +1168,83 @@ void AIChatConsoleContent::sendMessage(const juce::String& text) {
 
     pendingMessage_ = resolvedText;
 
+    // Capture the arrangement now, on the message thread, so the music agent
+    // can revise what exists instead of composing from a blank page.
+    pendingProjectContext_.clear();
+    if (magdaApi_ != nullptr)
+        pendingProjectContext_ = magda::MusicMemory::buildDAWSnapshot(*magdaApi_);
+
     dotCount_ = 0;
     startTimer(400);  // Animate dots every 400ms
 
     requestThread_ = std::make_unique<RequestThread>(*this);
     requestThread_->startThread();
+}
+
+bool AIChatConsoleContent::reviewHarmony(magda::HarmonyPlan& plan,
+                                         std::vector<magda::Instruction>& ir) {
+    // ALLOW_ALL (default) applies immediately, matching the prior behavior.
+    if (musicReviewMode_ == magda::ReviewMode::ALLOW_ALL || plan.empty())
+        return true;
+
+    magda::HarmonyApprovalEngine engine;
+    engine.setMode(musicReviewMode_);
+
+    // Track whether any stage was edited so we can rebuild the IR afterwards.
+    bool edited = false;
+
+    // The ask callback runs synchronously on the message thread via a modal
+    // AlertWindow: Reject / Edit / Approve, plus an "Allow all" escape hatch
+    // that switches the engine into ALLOW_ALL for the rest of this plan.
+    engine.setAskCallback(
+        [this, &edited, &engine](const magda::ReviewStage& stage,
+                                 juce::String& editedDetail) -> magda::StageDecision {
+            juce::AlertWindow w("Harmony review: " + stage.title,
+                                "Proposed: " + stage.detail,
+                                juce::AlertWindow::QuestionIcon);
+
+            juce::String warn;
+            for (const auto& is : stage.issues)
+                warn << "- " << juce::String(is.message) << "\n";
+            if (warn.isNotEmpty())
+                w.addTextBlock("Theory notes:\n" + warn);
+
+            w.addTextEditor("edit", stage.detail, "Edit (optional):");
+            w.addButton("Approve", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            w.addButton("Edit", 2);
+            w.addButton("Reject", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+            w.addButton("Allow all", 3);
+
+            int r = w.runModalLoop();
+            if (r == 0)
+                return magda::StageDecision::Reject;
+            if (r == 3) {
+                engine.setMode(magda::ReviewMode::ALLOW_ALL);
+                return magda::StageDecision::Approve;
+            }
+            if (r == 2) {
+                editedDetail = w.getTextEditorContents("edit");
+                edited = true;
+                return magda::StageDecision::Edit;
+            }
+            return magda::StageDecision::Approve;
+        });
+
+    juce::String rejectedStage;
+    bool approved = engine.review(plan, rejectedStage);
+    if (!approved)
+        return false;
+
+    // If the user edited any stage, regenerate the IR from the (possibly
+    // mutated) plan so their choices take effect. Structural edits to the
+    // progression are recorded in plan.description for the next turn; key /
+    // bass / melody edits are reflected directly.
+    if (edited) {
+        ir.clear();
+        magda::planToInstructions(plan, ir);
+    }
+
+    return true;
 }
 
 void AIChatConsoleContent::cancelRequest() {
@@ -2033,6 +2139,48 @@ void AIChatConsoleContent::buildSlashCommands() {
         return true;
     };
     slashRegistry_->add(std::move(design));
+
+    // /harmony — switch the human-in-the-loop harmony review mode. Mirrors
+    // CloseCrab's step-by-step vs allow-all permission flow.
+    SlashCommand harmony;
+    harmony.name = "harmony";
+    harmony.description = "Set how much you review AI-generated harmony";
+    harmony.usage = "/harmony <step|smart|all>";
+    harmony.details =
+        "Control the human-in-the-loop review applied before notes are written.\n"
+        "  step   Approve / edit / reject every stage (key, progression, inversions,\n"
+        "         tensions, bass, melody, cadence).\n"
+        "  smart  Auto-approve stages with no theory warnings; ask only on warnings.\n"
+        "  all    Allow all - apply immediately with no prompts (default).\n"
+        "During step/smart review you can also press 'Allow all' to finish without\n"
+        "further prompts.";
+    harmony.examples = {
+        {"Modes", {"step", "smart", "all"}},
+    };
+    harmony.handler = [this](const juce::String& originalText,
+                             const std::map<juce::String, juce::String>&,
+                             const juce::String& positional) {
+        appendToChat(juce::String::charToString(0x25CF) + " " + originalText);
+        auto mode = positional.trim().toLowerCase();
+        juce::String label;
+        if (mode == "step") {
+            musicReviewMode_ = magda::ReviewMode::STEP_BY_STEP;
+            label = "step-by-step (approve every stage)";
+        } else if (mode == "smart") {
+            musicReviewMode_ = magda::ReviewMode::SMART;
+            label = "smart (ask only on theory warnings)";
+        } else if (mode == "all" || mode == "allow" || mode == "off") {
+            musicReviewMode_ = magda::ReviewMode::ALLOW_ALL;
+            label = "allow-all (no prompts)";
+        } else {
+            appendToChat(juce::String::charToString(0x25C6) +
+                         " Usage: /harmony <step|smart|all>");
+            return true;
+        }
+        appendToChat(juce::String::charToString(0x25C6) + " Harmony review mode: " + label);
+        return true;
+    };
+    slashRegistry_->add(std::move(harmony));
 
     // /controller — generate a hardware controller profile JSON.
     SlashCommand controller;

@@ -13,6 +13,8 @@
 #include "../daw/core/DeviceInfo.hpp"
 #include "../daw/core/MidiNoteCommands.hpp"
 #include "../daw/core/PluginAlias.hpp"
+#include "../daw/core/RackInfo.hpp"
+#include "../daw/core/TrackManager.hpp"
 #include "../daw/core/TrackTypes.hpp"
 #include "../daw/engine/AudioEngine.hpp"
 #include "../daw/engine/TracktionEngineWrapper.hpp"
@@ -182,6 +184,22 @@ bool InstructionExecutor::execute(const std::vector<Instruction>& instructions) 
     int succeeded = 0;
     int failed = 0;
 
+    // An Ask anywhere in the batch means the agent is not confident enough to
+    // act. Detect it up front and apply nothing: half-writing an arrangement
+    // and then asking which direction to take is worse than asking first, and
+    // it leaves the user with edits they have to undo before answering.
+    for (const auto& inst : instructions) {
+        if (inst.opcode == OpCode::Ask) {
+            pendingQuestion_ = std::get<AskOp>(inst.payload).question;
+            for (const auto& other : instructions) {
+                if (other.opcode == OpCode::Say)
+                    notes_.add(std::get<SayOp>(other.payload).message);
+            }
+            results_.add("Waiting on you: " + pendingQuestion_);
+            return true;
+        }
+    }
+
     for (const auto& inst : instructions) {
         bool ok = false;
 
@@ -200,6 +218,9 @@ bool InstructionExecutor::execute(const std::vector<Instruction>& instructions) 
                 break;
             case OpCode::Set:
                 ok = executeSet(std::get<SetOp>(inst.payload));
+                break;
+            case OpCode::Param:
+                ok = executeParam(std::get<ParamOp>(inst.payload));
                 break;
             case OpCode::Clip:
                 ok = executeClip(std::get<ClipOp>(inst.payload));
@@ -224,6 +245,14 @@ bool InstructionExecutor::execute(const std::vector<Instruction>& instructions) 
                 break;
             case OpCode::Repeat:
                 ok = executeRepeat(std::get<RepeatOp>(inst.payload));
+                break;
+            case OpCode::Ask:
+                // Handled before the loop — an Ask aborts the whole batch.
+                ok = true;
+                break;
+            case OpCode::Say:
+                notes_.add(std::get<SayOp>(inst.payload).message);
+                ok = true;
                 break;
         }
 
@@ -272,7 +301,22 @@ bool InstructionExecutor::autoCreateClip() {
     const double beatsPerBar = barsToBeats(1.0);
     const double minLength = barsToBeats(4.0);
     double contentBars = beatsPerBar > 0.0 ? std::ceil(pendingContentEndBeats_ / beatsPerBar) : 4.0;
-    double startBeats = barsToBeats(0.0);  // bar 1 == beat 0
+    // Place the new clip at the next FREE bar on this track instead of always
+    // bar 1 -- otherwise every fresh generation stacks on top of the previous
+    // one and visually/audibly overwrites it. We scan existing clips on the
+    // track, take the furthest end, and snap up to the next whole bar.
+    double startBeats = barsToBeats(0.0);  // default: bar 1 == beat 0
+    {
+        double furthestEnd = 0.0;
+        for (ClipId existing : api_.clips().getClipsOnTrack(currentTrackId_)) {
+            if (auto* ci = api_.clips().getClip(existing))
+                furthestEnd = std::max(furthestEnd, ci->placement.endBeat());
+        }
+        if (furthestEnd > 0.0 && beatsPerBar > 0.0) {
+            double nextBar = std::ceil(furthestEnd / beatsPerBar);
+            startBeats = nextBar * beatsPerBar;
+        }
+    }
     double lengthBeats = std::max(minLength, barsToBeats(contentBars));
 
     DBG("InstructionExecutor::autoCreateClip creating MIDI clip on track " +
@@ -504,6 +548,141 @@ bool InstructionExecutor::executeSet(const SetOp& op) {
     currentTrackId_ = trackId;
     applySetProps(trackId, op.props);
     results_.add("Set track properties");
+    return true;
+}
+
+namespace {
+
+/** Loose parameter-name match: ignore case, spaces, underscores and hyphens so
+    "filter cutoff", "Filter_Cutoff" and "cutoff" all reach the same control. */
+juce::String normaliseParamName(const juce::String& s) {
+    juce::String out;
+    auto lower = s.toLowerCase();
+    for (int i = 0; i < lower.length(); ++i) {
+        auto c = lower[i];
+        if (juce::CharacterFunctions::isLetterOrDigit(c))
+            out << c;
+    }
+    return out;
+}
+
+/** Interpret a PARAM value against one parameter's real range.
+
+    A bare number is the parameter's own unit (Hz, dB, ms …) and is clamped to
+    range; "N%" is N percent of the range. Keeping those two forms distinct
+    avoids the ambiguity that bites when a range legitimately spans 0-1: with a
+    0-20000 Hz cutoff, "0.8" would otherwise be either 0.8 Hz or 80%. */
+bool parseParamValue(const ParameterInfo& info, const juce::String& raw, float& out) {
+    auto text = raw.trim().unquoted();
+    if (text.isEmpty())
+        return false;
+
+    if (text.equalsIgnoreCase("on") || text.equalsIgnoreCase("true")) {
+        out = info.maxValue;
+        return true;
+    }
+    if (text.equalsIgnoreCase("off") || text.equalsIgnoreCase("false")) {
+        out = info.minValue;
+        return true;
+    }
+
+    const bool isPercent = text.endsWithChar('%');
+    auto numberText = isPercent ? text.dropLastCharacters(1).trim() : text;
+    if (numberText.isEmpty() || !numberText.containsOnly("0123456789.+-eE"))
+        return false;
+
+    const auto lo = std::min(info.minValue, info.maxValue);
+    const auto hi = std::max(info.minValue, info.maxValue);
+    const auto value = static_cast<float>(numberText.getDoubleValue());
+
+    if (isPercent) {
+        const auto t = juce::jlimit(0.0f, 1.0f, value / 100.0f);
+        out = info.minValue + t * (info.maxValue - info.minValue);
+    } else {
+        out = juce::jlimit(lo, hi, value);
+    }
+    return true;
+}
+
+}  // namespace
+
+bool InstructionExecutor::executeParam(const ParamOp& op) {
+    int trackId = resolveTrackRef(op.target);
+    if (trackId < 0)
+        return false;
+
+    currentTrackId_ = trackId;
+
+    // The narrow TrackApi has no device/parameter surface, so reach the chain
+    // through TrackManager the same way four_osc_apply.cpp does.
+    auto& tm = TrackManager::getInstance();
+    const auto& elements = tm.getChainElements(trackId);
+
+    int applied = 0;
+    juce::StringArray unmatched;
+
+    for (const auto& key : op.params.getAllKeys()) {
+        const auto wanted = normaliseParamName(key);
+        if (wanted.isEmpty())
+            continue;
+        const auto rawValue = op.params.getValue(key, "");
+
+        bool done = false;
+        // Walk the chain back-to-front: the plugin the user just added is the
+        // one they are most likely still talking about ("add reverb — longer").
+        for (int i = static_cast<int>(elements.size()) - 1; i >= 0 && !done; --i) {
+            const auto& element = elements[static_cast<size_t>(i)];
+            if (!isDevice(element))
+                continue;
+            const auto& device = getDevice(element);
+
+            const ParameterInfo* exact = nullptr;
+            const ParameterInfo* partial = nullptr;
+            for (const auto& p : device.parameters) {
+                const auto have = normaliseParamName(p.name);
+                if (have == wanted) {
+                    exact = &p;
+                    break;
+                }
+                if (partial == nullptr && have.isNotEmpty()
+                    && (have.contains(wanted) || wanted.contains(have)))
+                    partial = &p;
+            }
+
+            const ParameterInfo* match = exact != nullptr ? exact : partial;
+            if (match == nullptr)
+                continue;
+
+            float real = 0.0f;
+            if (!parseParamValue(*match, rawValue, real)) {
+                unmatched.add(key + " (bad value '" + rawValue + "')");
+                done = true;
+                break;
+            }
+
+            tm.setDeviceParameterValue(ChainNodePath::topLevelDevice(trackId, device.id),
+                                       match->paramIndex, real);
+            results_.add("Set " + device.name + " " + match->name + " = " + rawValue);
+            ++applied;
+            done = true;
+        }
+
+        if (!done)
+            unmatched.add(key);
+    }
+
+    if (applied == 0) {
+        error_ = elements.empty()
+                     ? juce::String("Track has no plugins to set parameters on")
+                     : "No parameter matched: " + unmatched.joinIntoString(", ");
+        return false;
+    }
+
+    // Partial success is still success — report what was skipped rather than
+    // discarding the parameters that did land.
+    if (!unmatched.isEmpty())
+        results_.add("Skipped unknown parameter(s): " + unmatched.joinIntoString(", "));
+
     return true;
 }
 

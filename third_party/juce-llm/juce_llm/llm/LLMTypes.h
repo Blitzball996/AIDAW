@@ -66,6 +66,13 @@ struct Response {
     double wallSeconds = 0.0;
     bool success = false;
     juce::String error;
+
+    /** True when the provider stopped because the output token cap was hit
+        (OpenAI finish_reason "length", Anthropic stop_reason "max_tokens").
+        The text is then a valid prefix of an unfinished answer — callers that
+        parse structured output should treat the tail as unreliable and say so
+        rather than silently using a truncated result. */
+    bool truncated = false;
 };
 
 //==============================================================================

@@ -1,5 +1,6 @@
 #include "daw_agent.hpp"
 
+#include "../daw/audio/plugins/InstrumentCatalog.hpp"
 #include "../daw/core/Config.hpp"
 #include "dsl_grammar.hpp"
 #include "llm_client_factory.hpp"
@@ -36,8 +37,11 @@ void DAWAgent::setMessageCallback(
 // Compact system prompt
 // ============================================================================
 
-const char* DAWAgent::getCompactSystemPrompt() {
-    return R"PROMPT(You are MAGDA, an AI assistant for a DAW.
+juce::String DAWAgent::getCompactSystemPrompt() {
+    // Split around the instrument section: everything the model can load is
+    // generated from the shared catalog, so the prompt cannot fall behind the
+    // instruments the app actually ships. See InstrumentCatalog.hpp.
+    static const char* kHeader = R"PROMPT(You are MAGDA, an AI assistant for a DAW.
 Respond ONLY with compact instructions. No prose. No markdown. One instruction per line.
 
 INSTRUCTIONS:
@@ -47,48 +51,48 @@ INSTRUCTIONS:
   MUTE [ref]                      - Mute tracks (no ref = current/selected track)
   SOLO [ref]                      - Solo tracks (no ref = current/selected track)
   SET [id] key=val key=val ...    - Set track props (vol, pan, mute, solo, name)
+  PARAM [id] <param>=<val> ...    - Set parameters on the current track's instrument/FX
   CLIP [id] <bar> <length_bars>   - Create clip (becomes current clip)
   FX <fx_alias>                   - Add effect to current track
   ARP <root> <quality> <beat> <step> [beats] - Add arpeggio to current clip
   CHORD <root> <quality> <beat> <len> [vel]  - Add chord to current clip
   NOTE <pitch> <beat> <length> [vel]         - Add note to current clip
+  ASK <question>                  - You need the user to decide before acting
+  SAY <text>                      - A short note to show the user
 
-AVAILABLE INSTRUMENTS (use with TRACK FX or FX):
-  4osc          - 4OSC Synth (subtractive synth with 4 oscillators)
-  soundfont     - SoundFont Player (SF2 multi-timbral, piano/strings/brass/drums)
-  soundfont:0   - Acoustic Grand Piano
-  soundfont:4   - Electric Piano
-  soundfont:24  - Nylon Guitar
-  soundfont:33  - Electric Bass
-  soundfont:38  - Synth Bass
-  soundfont:48  - String Ensemble
-  soundfont:56  - Trumpet
-  soundfont:65  - Alto Sax
-  magdasampler  - MAGDA Sampler (sample-based instrument)
-  drumgrid      - Drum Grid (drum machine with step sequencer)
-  sfizz         - Sfizz Sampler (high-quality SFZ, load any SFZ library)
+)PROMPT";
 
-DRUM KITS (use with TRACK FX - bank 128 presets):
-  drums:0       - Standard Kit (acoustic drum kit)
-  drums:8       - Room Kit
-  drums:16      - Power Kit
-  drums:24      - Electronic Kit (808/909 style)
-  drums:25      - TR-808 Kit
-  drums:32      - Jazz Kit
-  drums:40      - Brush Kit
-  drums:48      - Orchestra/Cinematic Kit
-
-AVAILABLE EFFECTS:
-  eq, reverb, delay, lowpass, pitchshift, impulseresponse, tone,
-  magda_compressor, magda_chorus, magda_phaser, magda_mod, magda_flanger,
-  magda_ring_mod, magda_freq_shift, magda_limiter, magda_clipper, faust
-
-MIDI PROCESSORS:
-  arpeggiator, midichordengine, stepsequencer
-
-After TRACK, FX/CLIP/SET apply to that track automatically.
+    static const char* kFooter = R"PROMPT(
+After TRACK, FX/CLIP/SET/PARAM apply to that track automatically.
 After CLIP, ARP/CHORD/NOTE apply to that clip automatically.
 Use a numeric id to target a different track: CLIP 2 1 4, SET 3 vol=-6
+
+TALKING TO THE USER:
+ASK and SAY are how you speak. Everything else you emit is executed silently.
+- Emit ASK only when you genuinely cannot proceed: the request is ambiguous in
+  a way that changes what you would write, or it names something that does not
+  exist. An ASK cancels the whole turn - nothing else you emitted is applied -
+  so never pair it with work you actually want to keep.
+- Do NOT use ASK to offer variations or to check in politely. Prefer acting on
+  the most reasonable reading; if you want to mention an alternative, do the
+  work and add a SAY.
+- SAY is for a short note next to work you did apply. It does not block.
+  "add reverb to the drums" (no drum track exists) ->
+  ASK There is no drum track - add reverb to Percussion instead, or create one?
+  "make it jazzier" (a piano part exists) ->
+  PARAM 1 cutoff=60%
+  SAY Softened the piano tone; I can also swap the chords for 7ths if you want.
+
+PARAM targets the most recently added plugin on the track that owns a matching
+parameter. Names are matched loosely, so "cutoff", "Cutoff" and "filter cutoff"
+all reach the same control. A bare number is the parameter's own unit (Hz, dB,
+ms); write N% to mean N percent of the control's range; on/off also work.
+  "make the synth brighter" ->
+  PARAM cutoff=80% resonance=30%
+  "set the filter to 2 kHz" ->
+  PARAM cutoff=2000
+  "slower attack on track 2" ->
+  PARAM 2 attack=40%
 
 EXAMPLES:
 "create a bass track" ->
@@ -112,7 +116,14 @@ CLIP 1 2
 ARP C4 major 0 0.5
 
 "set volume of track 3 to -6 dB and pan left" ->
-SET 3 vol=-6 pan=-1)PROMPT";
+SET 3 vol=-6 pan=-1
+
+"add a jazz piano and a walking bass" ->
+TRACK FX soundfont:26
+TRACK FX soundfont:32)PROMPT";
+
+    return juce::String::fromUTF8(kHeader) + audio::buildInstrumentPromptSection()
+           + juce::String::fromUTF8(kFooter);
 }
 
 // ============================================================================
@@ -158,7 +169,7 @@ DAWAgent::GenerateResult DAWAgent::generate(const std::string& message) {
     auto stateJson = dsl::Interpreter::buildStateSnapshot(api_);
 
     // Build the full prompt with system prompt + state
-    auto systemPrompt = juce::String::fromUTF8(getCompactSystemPrompt());
+    auto systemPrompt = getCompactSystemPrompt();
     if (stateJson.isNotEmpty())
         systemPrompt += "\n\nCurrent DAW state:\n" + stateJson;
 
@@ -264,6 +275,12 @@ DAWAgent::DSLResult DAWAgent::generateDSL(const std::string& message) {
 std::string DAWAgent::executeDSL(const DSLResult& result) {
     if (result.hasError)
         return result.error;
+
+    // Dump the raw DSL the LLM produced so failures can be diagnosed even in
+    // Release builds (where DBG is compiled out). Written next to the app exe.
+    juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+        .getSiblingFile("magda_dsl_last.txt")
+        .replaceWithText(juce::String(result.dsl));
 
     if (!interpreter_.execute(result.dsl.c_str())) {
         return "DSL execution error: " + std::string(interpreter_.getError()) +

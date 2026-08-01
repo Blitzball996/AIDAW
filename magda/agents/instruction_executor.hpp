@@ -36,6 +36,17 @@ class InstructionExecutor {
         return results_.joinIntoString("\n");
     }
 
+    /** Non-empty when the agent asked the user something instead of acting.
+        Nothing was applied — answer it and send the reply as the next turn. */
+    juce::String getPendingQuestion() const {
+        return pendingQuestion_;
+    }
+
+    /** Free-text notes the agent attached to this turn (SAY), if any. */
+    juce::String getNotes() const {
+        return notes_.joinIntoString("\n");
+    }
+
     /** ID of the clip that notes were last written to (or auto-created). -1 if none. */
     int getCurrentClipId() const {
         return currentClipId_;
@@ -65,6 +76,7 @@ class InstructionExecutor {
     bool executeMute(const MuteOp& op);
     bool executeSolo(const SoloOp& op);
     bool executeSet(const SetOp& op);
+    bool executeParam(const ParamOp& op);
     bool executeClip(const ClipOp& op);
     bool executeFx(const FxOp& op);
     bool executeSelect(const SelectOp& op);
@@ -107,6 +119,8 @@ class InstructionExecutor {
     double pendingContentEndBeats_ = 0.0;
     juce::String error_;
     juce::StringArray results_;
+    juce::String pendingQuestion_;
+    juce::StringArray notes_;
 
     // Active selection from SELECT — consumed by subsequent instructions
     std::unordered_set<TrackId> selectedTracks_;

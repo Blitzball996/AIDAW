@@ -306,6 +306,8 @@ target_sources(magda_daw PRIVATE
     session/SessionRecorder.cpp
     plugins/InternalPluginRegistry.cpp
     plugins/InternalPluginRegistry.hpp
+    plugins/InstrumentCatalog.cpp
+    plugins/InstrumentCatalog.hpp
     # Phase 1: Pure data managers
     transport/TransportStateManager.cpp
     midi/MidiActivityMonitor.cpp

@@ -43,6 +43,19 @@ std::vector<Instruction> CompactParser::parse(const juce::String& compact) {
 
         auto op = parts[0].toUpperCase();
 
+        // ASK / SAY carry free-form text, so take the rest of the line verbatim
+        // instead of the tokenised parts (which would mangle punctuation).
+        if (op == "ASK" || op == "SAY") {
+            auto text = line.substring(parts[0].length()).trim();
+            if (text.isEmpty())
+                continue;  // a bare ASK/SAY carries no information — drop it
+            if (op == "ASK")
+                instructions.push_back({OpCode::Ask, AskOp{text}});
+            else
+                instructions.push_back({OpCode::Say, SayOp{text}});
+            continue;
+        }
+
         if (op == "TRACK") {
             if (parts.size() < 2) {
                 lastError_ = "TRACK requires a name";
@@ -118,6 +131,32 @@ std::vector<Instruction> CompactParser::parse(const juce::String& compact) {
                     payload.props.set(kv.substring(0, eqIdx), kv.substring(eqIdx + 1));
             }
             instructions.push_back({OpCode::Set, payload});
+        } else if (op == "PARAM") {
+            // PARAM key=val ...          (implicit track)
+            // PARAM <ref> key=val ...    (explicit track)
+            if (parts.size() < 2) {
+                lastError_ = "PARAM requires at least one param=value";
+                return {};
+            }
+            ParamOp payload;
+            int kvStart = 1;
+            if (parts[1].contains("=")) {
+                payload.target.implicit = true;
+            } else {
+                payload.target = parseRef(parts[1]);
+                kvStart = 2;
+            }
+            for (int i = kvStart; i < parts.size(); ++i) {
+                auto kv = parts[i];
+                auto eqIdx = kv.indexOfChar('=');
+                if (eqIdx > 0)
+                    payload.params.set(kv.substring(0, eqIdx), kv.substring(eqIdx + 1));
+            }
+            if (payload.params.size() == 0) {
+                lastError_ = "PARAM requires at least one param=value";
+                return {};
+            }
+            instructions.push_back({OpCode::Param, payload});
         } else if (op == "CLIP") {
             // CLIP <bar> <length_bars>         (implicit track, 2 args)
             // CLIP <ref> <bar> <length_bars>   (explicit track, 3 args)
